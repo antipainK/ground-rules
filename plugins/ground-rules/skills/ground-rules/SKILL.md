@@ -84,6 +84,7 @@ Ask a question here only if something is unclear: the mode (AI files but no code
 2. Write `docs/first-sketch_<today>.md` from the answer, starting with:
    > **Initial sketch, not a source of truth.** Written on <today> before any code existed. Plans change; check `.ai/` and the code for what is actually decided.
 3. Show it and ask: Apply / Skip.
+4. Language: if the answer leaves the language open, ask which one the code will use, in the same round as the Apply / Skip above (the question tool: up to 3 plausible languages for the goal, plus "Undecided"). Rules in `.ai/` depend on it, so ask it before Step 5.
 
 ## Step 3: Audit existing AI files
 
@@ -118,7 +119,9 @@ Only if `docs/` exists and names break the convention:
 
 Always:
 - `.ai/architecture.md`: layers, boundaries, data flow, where things go, anti-patterns.
-- `.ai/code-style.md`: naming, file layout, typing, error handling, tests.
+- `.ai/code-style.md`: naming, file layout, typing, error handling, tests (not while the language is undecided, see below).
+
+If the language of an empty repo is still undecided, leave out `.ai/code-style.md` and every file whose rules depend on the language (e.g. testing, api), and say they can be added by running the skill again once it is chosen.
 
 Only when the stack is decided, meaning the user confirms the core libraries and tools are not about to change:
 - `.ai/tech-stack.md`: chosen libraries and tools, what is explicitly not used.
@@ -194,7 +197,7 @@ Design docs, plans and decisions for humans and AI are in `docs/`. Files with a 
 - Before planning a feature or changing <the main area>: check `docs/`<, starting with the most relevant file>.
 ```
 
-Leave out sections that would be empty. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, turn the Enforce rules a tool already covers into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
+Leave out sections that would be empty and pointers to files that were not written. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, turn the Enforce rules a tool already covers into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
 
 Each `.ai/` file:
 
