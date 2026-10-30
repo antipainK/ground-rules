@@ -70,14 +70,13 @@ Claude Code (v2.1.277+) reads `AGENTS.md` instead of `CLAUDE.md` only when there
 Read, don't change anything yet. Collect:
 
 1. Stack signals: manifests and lockfiles (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pom.xml`, `*.csproj`, ...), `README*`, CI config, lint/format/compiler configs, top-level folder layout.
-2. Existing AI instruction files, at any depth: `AGENTS.md`, `.claude/AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `.claude/settings.json`, `.cursorrules`, `.cursor/rules/`, `.github/copilot-instructions.md`, `.github/instructions/`, `.windsurfrules`, `GEMINI.md`, `.ai/`. Skip `.claude/skills/`.
+2. Existing AI instruction files, at any depth: `AGENTS.md`, `.claude/AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `.claude/settings.json` (config: inventory only, not audited as rules), `.cursorrules`, `.cursor/rules/`, `.github/copilot-instructions.md`, `.github/instructions/`, `.windsurfrules`, `GEMINI.md`, `.ai/`. Skip `.claude/skills/`.
 3. `docs/`: file list, naming, and links between docs. For existing `docs/todo/` files, count the open and ticked items; report them, and check whether open items are still true in the code.
 4. Git state: current branch, remote and upstream, uncommitted and staged changes. Remember them; they are not this skill's to commit.
 
-Report in at most 10 lines. Then ask, in one round:
+Report in at most 10 lines, including the detected mode as a bold line: **Mode: empty repo (Step 2, then Steps 5-10)**, **existing repo without AI files (Steps 4-10)** or **existing repo with AI files (Steps 3-10)**. The evidence decides it: nothing but `.git` and housekeeping files (README, LICENSE, `.gitignore`) is an empty repo; AI instruction files (not `.claude/settings.json`) plus code or manifests mean with AI files; no AI instruction files plus code or manifests mean without. The user can correct the mode at the next question.
 
-- **Mode:** empty repo (Step 2, then Steps 5-10) / existing repo without AI files (Steps 4-10) / existing repo with AI files (Steps 3-10).
-- **Anything unclear about the environment**, e.g. which package manager when several lockfiles exist.
+Ask a question here only if something is unclear: the mode (AI files but no code or manifests, e.g. a lone `.cursorrules`) or the environment (e.g. which package manager when several lockfiles exist). If nothing is unclear, ask nothing and continue with the next step.
 
 ## Step 2: Empty repo only
 
