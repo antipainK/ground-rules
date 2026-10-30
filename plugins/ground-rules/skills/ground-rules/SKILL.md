@@ -19,7 +19,7 @@ docs/              human + AI design docs, plans, decisions
 - **The user decides.** Never write a rule the user did not pick. Never invent a reason for a decision; a rule without a reason has no "Why".
 - **Organise, don't legitimise.** What the repo currently does is one option, labelled as such, never recommended just because it exists. Existing code may be unreviewed or generated; judge it.
 - **Enforced beats written.** If a linter, formatter, compiler setting or CI check can enforce a rule, propose that config change. The config is then the source of truth: the `.ai/` file doesn't restate tool-enforced rules one by one but points to the config and the command that checks it.
-- **Primary sources only.** Options come from official documentation, language/framework style guides, release notes and the recommended configs that tools ship. No blog posts, listicles or AI-generated summaries. Fetch every URL you cite during this run and confirm it supports that specific claim; don't cite from memory.
+- **Primary sources only.** Options come from official documentation, language/framework style guides, release notes and the recommended configs that tools ship. No blog posts, listicles or AI-generated summaries. Fetch every URL you cite during this run and confirm it supports that specific claim and keep the sentence that does (Step 6.5); don't cite from memory.
 - **Recommend from evidence; label the operator.** Base recommendations on the repo and cited sources. Stored personal preferences of whoever runs the skill (user-level CLAUDE.md, memories, personal skills) may also inform a recommendation, but then the label ends with `(Personal)` after `(Recommended)` and the description says what the preference is and what else supports the option. A personal preference that differs from the recommended option is a separate option labelled "Your preference (personal config)", never marked recommended. Personal config never becomes a rule without the user's pick and is never used to judge the repo. Preferences the user states during this run are input like any other answer. Their working rules (how to ask, when to commit) apply to how you run the skill, never to what is written into the repo's files.
 - **No assumptions about the environment.** Detect the OS, shell, package manager and tooling from the repo; ask when unclear.
 - **Scope: conventions, not code.** The skill changes only `AGENTS.md`, `.ai/`, `docs/`, AI instruction files, tool config (linter, formatter, compiler, CI), example config files (e.g. `.env.example`), dependency manifests and the permissions in `.claude/settings.json` (Step 8). It never changes application code. Code that breaks a new rule is reported at the end (Step 10), not fixed.
@@ -157,7 +157,7 @@ For each approved file:
    - If the change will make the current code fail (lint errors, type errors), say so in the option description. The code is not fixed by this skill; failures are reported in Step 10.
    - Never weaken or disable an existing tool rule without asking.
 4. **Open round.** After all questions for a file are answered, ask with the question tool whether the user has more rules for this file: options "No more rules (Recommended)" and "Suggest some"; the user types their own rules through "Other". For each typed rule, propose a sharpened wording (specific, checkable) and ask Apply / Skip. On "Suggest some", propose 2-3 complementary rules based on what was chosen, as a multi-select. These follow the same sourcing rules; a design choice without a source is marked as such and recommended only on the grounds in Step 6.2.
-5. **Record** for every rule: the rule, the reason if the user or the source gave one, and how it is enforced or the source URL.
+5. **Record** for every rule: the rule, the reason if the user or the source gave one, and how it is enforced or the source URL plus the sentence from the page that supports the rule (kept for the review in Step 9, not written into the files). A rule kept or rewritten in Step 3 that carries a citation gets the same record when you can fetch the page; if you can't, say so and the review skips that citation.
 
 ## Step 7: Write the files
 
@@ -219,9 +219,9 @@ Last reviewed: <today>
 
 Tool-enforced rules get one line per tool instead of one line per rule, e.g. "Follow the naming, typing and import rules; check with `pnpm lint`. Enforced by: ESLint (`eslint.config.js`)." Write a tool-enforced rule out separately only when its reason isn't visible in the config and matters for decisions; then one line with "Why".
 
-Write only durable facts. No exact versions, counts, line numbers or lists of files that a manifest, lockfile or config already holds; point to that file instead ("Versions: `package.json`"). The one exception is the `AGENTS.md` Commands section: where the commands live, plus the 3-5 most used spelled out for speed. Rules describe patterns, not inventories. Don't describe where the current code falls short of the rules; that belongs in the `docs/todo/` file (Step 10), not in `.ai/`.
+Write only durable facts. No exact versions, counts, line numbers or lists of files that a manifest, lockfile or config already holds; point to that file instead ("Versions: `package.json`"). A constraint that matters (an upper bound, a pinned tool) stays: name the tool and give at most the major version ("TypeScript below 6"), never minor or patch. If the bound isn't a clean major, name what sets it ("until typescript-eslint supports the next TypeScript") instead of a number, and point only to a file you have checked. The only place that copies commands from a manifest is the `AGENTS.md` Commands section (version bounds appear only as described above): where the commands live, plus the 3-5 most used spelled out for speed. Rules describe patterns, not inventories. Don't describe where the current code falls short of the rules; that belongs in the `docs/todo/` file (Step 10), not in `.ai/`.
 
-Mark a rule "After migration." only if the user chose that; otherwise it applies from now on. Omit "Why" when no reason was given.
+Mark a rule "After migration." only if the user chose that; otherwise it applies from now on. A "Why" is the user's own reason or a phrase from the recorded sentence (Step 6.5); never paraphrase a source into a reason. Omit "Why" when there is none.
 
 Before writing, check every statement about the current code (what exists, where, how many, what a tool or test does) by reading or searching the repo; drop or correct anything you can't confirm. A plan or intention ("automation is planned") goes in only if the user said it or a doc in the repo says it; otherwise drop it, or ask and mark it "Project decision". Every rule ends with exactly one of: "Enforced by", "Source", "Project decision". Rules are short imperative statements. Code examples only when a rule is hard to state in words, and then complete and working, never placeholder code.
 
@@ -248,15 +248,15 @@ The file is committed and applies to everyone working in the repo; say so. If th
 
 ## Step 9: Review by a fresh agent
 
-Launch a general-purpose subagent with a small, cheap model (e.g. haiku). It must not see the interview. Give it only the list of written and changed files (not `.claude/skills/`) and this checklist:
+Launch a general-purpose subagent with a small, cheap model (e.g. haiku). It must not see the interview. Give it only the list of written and changed files (not `.claude/skills/`), the citation record (rule, URL, supporting sentence) from Step 6.5, and this checklist:
 
 - Rules that contradict each other, across files or with tool config.
 - Vague rules that can't be checked.
 - Rules that don't match the repo: commands, paths or tools that don't exist. A rule without "After migration." applies from now on and may name a folder that doesn't exist yet; that is not a finding. Code that breaks a rule is not a docs error either: it goes to "code that breaks the new rules". Do flag a rule marked "After migration." whose wording contradicts the migration deferral, and any sentence in `.ai/` that describes the current code instead of a rule.
 - Judge the repo only against itself and the cited sources, never against user-level config (personal CLAUDE.md, memories).
-- Citations that don't support the rule they're attached to.
+- Citations whose recorded sentence doesn't support the rule they're attached to, and "Why" lines that aren't a phrase from the recorded sentence (you check the user's own reasons yourself).
 - Rules that restate what a configured tool already enforces, instead of pointing to the config.
-- Facts that will go stale quickly (versions, counts, line numbers, file lists) where a source of truth could be named instead. The `AGENTS.md` Commands section is exempt.
+- Facts that will go stale quickly (versions, counts, line numbers, file lists) where a source of truth could be named instead. The `AGENTS.md` Commands section and major-version bounds (Step 7) are exempt.
 - `AGENTS.md` over 150 lines, `.ai/` files over 300 lines, missing `Last reviewed`.
 - Pointers in `AGENTS.md` without a concrete trigger.
 - Rules that can't be checked against the code (no reader could tell whether the code follows them).
