@@ -172,7 +172,7 @@ Last reviewed: <today>
 
 ## Commands
 
-All commands: <where they live: `package.json` scripts, `Taskfile.yml`, `Makefile`, `pyproject.toml`, ...>. Most used (exact, as found in the repo; 3-5 from install, dev, build, test, lint, typecheck, whichever exist; one bullet per command):
+All commands: <where they live: `package.json` scripts, `Taskfile.yml`, `Makefile`, `pyproject.toml`, ...>. Most used:
 
 - `<install>`
 - `<test>`
@@ -181,8 +181,7 @@ All commands: <where they live: `package.json` scripts, `Taskfile.yml`, `Makefil
 ## Workflow
 
 <rules about how to work, not about code: e.g. "Run `<test command>` before finishing a task.">
-- If a rule in `.ai/` contradicts the code you're changing or a decision made with the user, stop and propose updating the rule; don't silently follow it or work around it.
-- When you finish a migration item listed in `docs/todo/`, tick it there.
+- Keep `AGENTS.md` and `.ai/` current. If a rule contradicts the code you're changing or a decision made with the user, or your change makes a rule, command or pointer wrong, stop and propose the edit; once approved, make it in the same change and bump `Last reviewed`. Don't silently follow a wrong rule or work around it.
 
 ## Rules
 
@@ -196,12 +195,15 @@ Detailed rules live in `.ai/`. Read the matching file before working in that are
 
 ## Docs
 
-Design docs, plans and decisions for humans and AI are in `docs/`. Files with a date in the name are snapshots and may be outdated.
+Design docs, plans and decisions for humans and AI go in `docs/`.
 
+- Snapshots (plans, research, notes) carry the date in the name, `topic_YYYY-MM-DD.md`, and are not edited later; a newer version is a new file. They may be outdated.
+- Living docs (e.g. an architecture overview) have no date in the name and start with `Last reviewed: YYYY-MM-DD`; bump it when you review or change them.
+- Ticking a checkbox in a to-do checklist is the one allowed edit to a snapshot.
 - Before planning a feature or changing <the main area>: check `docs/`<, starting with the most relevant file>.
 ```
 
-Leave out sections that would be empty and pointers to files that were not written. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, turn the Enforce rules a tool already covers into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
+Commands: exact commands as found in the repo, up to 5 of install, dev, build, test, lint, typecheck (whichever exist), one bullet per command. Always write the Docs section, even when `docs/` doesn't exist yet (then leave out its last bullet). Leave out other sections that would be empty, and pointers to files that were not written. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, turn the Enforce rules a tool already covers into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
 
 Each `.ai/` file:
 
@@ -282,7 +284,7 @@ Report discarded findings in one line each, with the reason. After applying fixe
    | [ ] | `<path>` | <what breaks> | [<rule>](../../.ai/<file>.md) |
    ```
 
-   On Apply it is part of this commit, and add the line "Open migration tasks are in `docs/todo/`." to the Docs section of `AGENTS.md` and bump its `Last reviewed` (if Step 8's permission rule is in place, Claude Code will ask before this edit; that is expected).
+   On Apply it is part of this commit, and add to `AGENTS.md` the last Docs bullet "Open migration tasks are in `docs/todo/`." and the Workflow bullet "When you finish a migration item listed in `docs/todo/`, tick it there.", and bump its `Last reviewed` (if Step 8's permission rule is in place, Claude Code will ask before this edit; that is expected).
 2. List exactly the files this skill created, changed, renamed or deleted. Leave out anything that was already uncommitted before Step 1, and say that you left it out.
 3. List what is not verified: checks that failed or couldn't run, dependencies not installed, lockfiles out of sync.
 4. Propose a commit message following the repo's existing commit style (check `git log`); default `Bootstrap repository conventions`. Ask Commit / Don't commit; a different message comes through "Other".
