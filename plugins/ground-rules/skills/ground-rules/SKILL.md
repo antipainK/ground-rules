@@ -172,7 +172,11 @@ Last reviewed: <today>
 
 ## Commands
 
-<install, dev, build, lint, typecheck, test: exact commands as found in the repo>
+All commands: <where they live: `package.json` scripts, `Taskfile.yml`, `Makefile`, `pyproject.toml`, ...>. Most used (exact, as found in the repo; 3-5 from install, dev, build, test, lint, typecheck, whichever exist; one bullet per command):
+
+- `<install>`
+- `<test>`
+- `<lint>`
 
 ## Workflow
 
@@ -213,7 +217,7 @@ Last reviewed: <today>
 
 Tool-enforced rules get one line per tool instead of one line per rule, e.g. "Follow the naming, typing and import rules; check with `pnpm lint`. Enforced by: ESLint (`eslint.config.js`)." Write a tool-enforced rule out separately only when its reason isn't visible in the config and matters for decisions; then one line with "Why".
 
-Write only durable facts. No exact versions, counts, line numbers or lists of files that a manifest, lockfile or config already holds; point to that file instead ("Versions: `package.json`"). Rules describe patterns, not inventories. Don't describe where the current code falls short of the rules; that belongs in the `docs/todo/` file (Step 10), not in `.ai/`.
+Write only durable facts. No exact versions, counts, line numbers or lists of files that a manifest, lockfile or config already holds; point to that file instead ("Versions: `package.json`"). The one exception is the `AGENTS.md` Commands section: where the commands live, plus the 3-5 most used spelled out for speed. Rules describe patterns, not inventories. Don't describe where the current code falls short of the rules; that belongs in the `docs/todo/` file (Step 10), not in `.ai/`.
 
 Mark a rule "After migration." only if the user chose that; otherwise it applies from now on. Omit "Why" when no reason was given.
 
@@ -250,7 +254,7 @@ Launch a general-purpose subagent with a small, cheap model (e.g. haiku). It mus
 - Judge the repo only against itself and the cited sources, never against user-level config (personal CLAUDE.md, memories).
 - Citations that don't support the rule they're attached to.
 - Rules that restate what a configured tool already enforces, instead of pointing to the config.
-- Facts that will go stale quickly (versions, counts, line numbers, file lists) where a source of truth could be named instead.
+- Facts that will go stale quickly (versions, counts, line numbers, file lists) where a source of truth could be named instead. The `AGENTS.md` Commands section is exempt.
 - `AGENTS.md` over 150 lines, `.ai/` files over 300 lines, missing `Last reviewed`.
 - Pointers in `AGENTS.md` without a concrete trigger.
 - Rules that can't be checked against the code (no reader could tell whether the code follows them).
