@@ -1,0 +1,14 @@
+{
+  "name": "ground-rules",
+  "description": "Set up or audit a repository's AI conventions: AGENTS.md, .ai/ rule files and docs/, decided with you rule by rule.",
+  "owner": {
+    "name": "Wojciech Kosztyła"
+  },
+  "plugins": [
+    {
+      "name": "ground-rules",
+      "source": "./plugins/ground-rules",
+      "description": "Interactive skill that inspects a repo, audits existing AI instruction files, interviews you rule by rule with cited options, and writes AGENTS.md, .ai/ rules and enforcing tool config."
+    }
+  ]
+}

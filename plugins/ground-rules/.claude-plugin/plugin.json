@@ -1,0 +1,10 @@
+{
+  "name": "ground-rules",
+  "description": "Set up or audit a repository's AI conventions: AGENTS.md, .ai/ rule files and docs/, decided with you rule by rule.",
+  "author": {
+    "name": "Wojciech Kosztyła"
+  },
+  "homepage": "https://github.com/antipainK/ground-rules",
+  "repository": "https://github.com/antipainK/ground-rules",
+  "license": "MIT"
+}
