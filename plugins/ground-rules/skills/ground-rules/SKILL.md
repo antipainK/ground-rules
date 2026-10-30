@@ -29,7 +29,7 @@ docs/              human + AI design docs, plans, decisions
 
 Use multiple choice (`AskUserQuestion`):
 
-- At most 4 questions per call, 2-4 options each. The tool adds "Other" for tweaks; never add your own "Other" option.
+- At most 4 questions per call, 2-4 options each. The tool adds "Other" for tweaks; never add your own "Other" option. A question with fewer than 2 real options is a statement: say it in the message instead.
 - Every choice question has exactly one option marked "(Recommended)", listed first, unless the user is only stating a fact ("which date is it?") or no option has a source, repo evidence, stated preference or personal config behind it (then mark none and say so in the message; when the user asked for help deciding, recommend anyway and say it is your judgment). This includes Apply / Skip confirmations: mark the one you'd pick. Multi-select questions are the exception to "exactly one": mark each option you'd actually select. Put the reasoning in the option description.
 - Option labels are 1-5 words, not counting the `(Recommended)` and `(Personal)` tags. Details, sources and trade-offs go in the description.
 - Option descriptions are short: about 20 words, the consequence and the main trade-off. Say once in the message which options have no source; don't repeat it in every option.
@@ -91,14 +91,14 @@ For each existing AI instruction file, go rule by rule. Propose one verdict each
 
 - **Keep**: specific, correct, still matches the code.
 - **Rewrite**: right intent, vague or wrong wording ("write clean code" is not a rule).
-- **Enforce**: belongs in tool config. If the tool isn't set up yet, it becomes an enforcement question in Step 6.
+- **Enforce**: belongs in tool config. If a configured tool already enforces it (confirm its command or globs reach the files the rule is about), the verdict stands and Step 7 writes the pointer line; no further question. If no configured tool covers it yet, it becomes an enforcement question in Step 6.
 - **Move**: belongs in `docs/` (rationale, plans) rather than in AI rules.
 - **Delete**: wrong, obsolete, contradicts the code or another rule, restates tool defaults, or is about the AI's tone rather than the repo.
 
 Present a table per file, then confirm each file with one Apply / Skip question covering its whole table; adjustments to single verdicts come through "Other". Skip means the file stays as it is: it is not offered for deletion in Step 7, and its rules are neither decided nor offered again.
 
 - Kept and rewritten rules go to Step 6 as already decided, not asked again: kept rules keep their wording, rewritten rules use the wording proposed in this step. If a topic in Step 6 conflicts with one, raise the conflict.
-- Every Enforce verdict goes to Step 6 even if its topic is later struck.
+- Every Enforce verdict that no configured tool covers yet goes to Step 6 even if its topic is later struck.
 - Deleted rules are gone: don't offer them again as an option.
 - A kept rule that names a path must still make sense after Steps 3-4; if the path would be empty or gone, say so.
 - Note existing tool settings that weaken checks (e.g. a disabled lint rule) and ask whether to keep them.
@@ -123,7 +123,9 @@ Always:
 Only when the stack is decided, meaning the user confirms the core libraries and tools are not about to change:
 - `.ai/tech-stack.md`: chosen libraries and tools, what is explicitly not used.
 
-Proposed from what Step 1 found, for example `.ai/testing.md`, `.ai/api.md`, `.ai/database.md`, `.ai/ui.md`, `.ai/git-workflow.md`. Ask with multi-select; the user can add their own topics through "Other".
+Proposed from what Step 1 found, for example `.ai/testing.md`, `.ai/api.md`, `.ai/database.md`, `.ai/ui.md`, `.ai/git-workflow.md`.
+
+The Always files are included without asking and count as approved. Ask about the optional ones in a multi-select (split into several questions of up to 4 options when there are more); the user can add their own topics through "Other". With only one candidate, show its proposed topics in the message and ask Apply / Skip; with none, don't ask.
 
 Any file may later grow into a folder (`.ai/architecture/` with a short `index.md`). Suggest splitting when a file passes ~300 lines.
 
@@ -145,7 +147,7 @@ For each approved file:
 
    Rules apply to new and changed code. When the chosen rule conflicts with how the existing code is laid out (e.g. "new components go in `src/features/`" while that folder doesn't exist yet), ask in the next round when it takes effect: "From now on (Recommended)": new code follows it immediately and existing code is migrated later; or "After migration": new code keeps following the current layout until the migration is done. Record the answer with the rule.
 
-   Design choices with no primary source (layering, folder layout, library choice) are offered as **Project decision** options: say there is no source and give the trade-off. Recommend one only on evidence from the repo, the user's stated preferences in this run or personal config (then tagged `(Personal)`), or when the user asked for help deciding (then say it is your judgment).
+   Design choices with no primary source (layering, folder layout, library choice) are offered as **Project decision** options: say there is no source and give the trade-off. Every Project decision question includes "No rule" as one of the up to 4 options (never the one left out when five apply), so the user can strike the topic. Recommend one only on evidence from the repo, the user's stated preferences in this run or personal config (then tagged `(Personal)`), or when the user asked for help deciding (then say it is your judgment).
 3. **Enforcement.** If a rule can be enforced by a tool:
    - Tool works already: offer the rule's options in enforced and not-enforced variants ("PEP 8 names, enforced" / "PEP 8 names, not enforced") and show the config diff in the message, so the rule and its enforcement are decided in one answer, without a separate Apply / Skip round.
    - Tool needs a new dependency (also when an installed tool needs a plugin or parser to work): first ask about the dependency, naming the package and version; then ask about the config change.
@@ -192,7 +194,7 @@ Design docs, plans and decisions for humans and AI are in `docs/`. Files with a 
 - Before planning a feature or changing <the main area>: check `docs/`<, starting with the most relevant file>.
 ```
 
-Leave out sections that would be empty. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
+Leave out sections that would be empty. If `AGENTS.md` (or an `.ai/` file) already exists, rewrite it into this template: keep the Keep and Rewrite rules from Step 3, turn the Enforce rules a tool already covers into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip).
 
 Each `.ai/` file:
 
