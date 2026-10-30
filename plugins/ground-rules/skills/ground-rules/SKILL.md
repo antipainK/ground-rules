@@ -48,7 +48,7 @@ Messages are read in a terminal; make them scannable, not a column of prose.
 - Start each message with one bold status line: the step and what just happened.
 - Put anything with more than one attribute in a table: evidence, verdicts, renames, findings, files changed, check results, the to-do list. Sources go in their own column, not inside sentences.
 - Show config changes as a diff of only the changed lines, not the whole file. When a file is rewritten completely (e.g. an existing `AGENTS.md` put into the template), show the new content plus one line on what was dropped, not a diff of every line.
-- Keep the text before the questions to about 15 lines. Leave out what the user doesn't need to decide now.
+- Keep the text before the questions to about 15 lines, not counting the Step 3 rule tables, which show every rule. Leave out what the user doesn't need to decide now.
 - Don't repeat decisions the user already made; refer to the file they live in.
 - The final report (Step 10) is tables plus at most a few lines: commit, files, to-do (file | problem), check results (check | result), open conflicts, out-of-scope notes.
 
@@ -96,7 +96,7 @@ For each existing AI instruction file, go rule by rule. Propose one verdict each
 - **Move**: belongs in `docs/` (rationale, plans) rather than in AI rules.
 - **Delete**: wrong, obsolete, contradicts the code or another rule, restates tool defaults, or is about the AI's tone rather than the repo.
 
-Present a table per file, then confirm each file with one Apply / Skip question covering its whole table; adjustments to single verdicts come through "Other". Skip means the file stays as it is: it is not offered for deletion in Step 7, and its rules are neither decided nor offered again.
+Present every rule of a file in a table, each with its one-line reason (about 8 words). A table over 15 rows is split under sub-headings in the same message, so no rule is hidden: the file's own sections, or "Rules 1-15", "Rules 16-30" and so on when it has none. Then confirm each file with one Apply / Skip question covering all its tables; adjustments to single verdicts come through "Other". Skip means the file stays as it is: it is not offered for deletion in Step 7, and its rules are neither decided nor offered again.
 
 - Kept and rewritten rules go to Step 6 as already decided, not asked again: kept rules keep their wording, rewritten rules use the wording proposed in this step. If a topic in Step 6 conflicts with one, raise the conflict.
 - Every Enforce verdict that no configured tool covers yet goes to Step 6 even if its topic is later struck.
