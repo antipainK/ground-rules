@@ -248,6 +248,13 @@ sys.exit(1 if problems else 0)' "$SETTINGS"
   if cmp -s "$RESULTS/.boundary-now.txt" "$SCRIPTS/testdata/skill-boundary.txt"; then pass T31; else fail T31 "boundary section differs from testdata/skill-boundary.txt"; fi
   rm -f "$RESULTS/.boundary-now.txt"
 
+  # T35 reviewer agent is read-only, T36 skill uses it, T37 settings allow it
+  AGENT="$GR_ROOT/.claude/agents/eval-reviewer.md"
+  TOOLS_LINE=$(grep -m1 '^tools:' "$AGENT" 2> /dev/null)
+  if [ "$TOOLS_LINE" = "tools: Read, Glob, Grep" ]; then pass T35; else fail T35 "agent tools line is: ${TOOLS_LINE:-missing}"; fi
+  if grep -Fq 'eval-reviewer' "$SKILL"; then pass T36; else fail T36 "skill does not name eval-reviewer"; fi
+  if grep -Fq '"Agent(eval-reviewer)"' "$SETTINGS"; then pass T37; else fail T37 "settings lack Agent(eval-reviewer)"; fi
+
   # T32 README names every script and the permission entries
   MISSING=""
   for n in new-run.sh prepare-cell.sh snapshot-source.sh check-cell.sh append-log.sh test-scripts.sh denyWrite; do

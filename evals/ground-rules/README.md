@@ -61,6 +61,12 @@ setup:
 The allow rule matches any arguments, so the scripts do the validation. Managed
 settings always take precedence over these entries.
 
+Reviewers and blind evaluators run as the `eval-reviewer` agent
+(`.claude/agents/eval-reviewer.md`), which can only read and search files
+(Read, Glob, Grep), so it never prompts for shell commands. Targets are told to
+write files with the Write or Edit tools. Prompts that remain are for Git and
+deletion commands the target runs itself.
+
 Run `evals/ground-rules/scripts/test-scripts.sh` after changing a script or the
 settings.
 
