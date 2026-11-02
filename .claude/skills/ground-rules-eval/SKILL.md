@@ -182,7 +182,10 @@ Give the target only:
 - the safety boundary; and
 - this response contract.
 
-Tell it to read and follow the Ground Rules skill as its active workflow. It may
+Tell it to read and follow the Ground Rules skill as its active workflow. Tell it
+to create and edit files with the Write or Edit tools, to read and search with
+Read, Glob, and Grep, and to use Bash only for Git and project commands, never
+for file contents written through shell heredocs. It may
 inspect local files only in its workspace. It may fetch official public
 documentation when the Ground Rules workflow requires current primary sources;
 that is not a workspace-boundary violation. It must not read the matrix, fixture
@@ -326,9 +329,9 @@ the rejected response as a harness finding, never as authorization.
 
 ### Ground Rules review loop
 
-When a target returns `needs-workflow-review`, launch two fresh general-purpose
-reviewers concurrently using the inputs and checklist required by Ground Rules
-Step 9. The target does not launch them. Record their complete findings, then
+When a target returns `needs-workflow-review`, launch two fresh `eval-reviewer`
+agents (read-only: Read, Glob, and Grep) concurrently using the inputs and
+checklist required by Ground Rules Step 9. The target does not launch them. Record their complete findings, then
 resume the target with both reviews.
 
 The target verifies findings against the files and decision record. False
@@ -375,8 +378,9 @@ the cell; do not repair the evaluated workspace or reinterpret the matrix.
 
 ## Blind review
 
-After deterministic checks pass, launch two fresh reviewer agents concurrently.
-Do not resume target or persona agents as reviewers.
+After deterministic checks pass, launch two fresh `eval-reviewer` agents
+concurrently. They are read-only (Read, Glob, and Grep), so they cannot prompt for
+shell commands. Do not resume target or persona agents as reviewers.
 
 Give each reviewer only:
 
