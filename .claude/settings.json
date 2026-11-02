@@ -1,0 +1,23 @@
+{
+    "permissions": {
+      "allow": [
+        "Bash(git check-ignore *)",
+        "Bash(echo \"exit=$?\")",
+        "Edit(evals/ground-rules/results/**)",
+        "Write(evals/ground-rules/results/**)",
+        "SendMessage",
+        "Agent(general-purpose)",
+        "Bash(evals/ground-rules/scripts/*)"
+      ],
+      "ask": [
+        "Edit(/evals/ground-rules/scripts/**)"
+      ]
+    },
+    "sandbox": {
+      "filesystem": {
+        "denyWrite": [
+          "./evals/ground-rules/scripts"
+        ]
+      }
+    }
+  }
