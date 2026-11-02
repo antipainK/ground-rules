@@ -1,6 +1,7 @@
 {
   "name": "ground-rules",
-  "description": "Set up or audit a repository's AI conventions: AGENTS.md, .ai/ rule files and docs/, decided with you rule by rule.",
+  "version": "0.1.0",
+  "description": "Interactively set up, migrate or maintain repository AI conventions in AGENTS.md, .ai/ and docs/.",
   "author": {
     "name": "Wojciech Kosztyła"
   },

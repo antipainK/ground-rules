@@ -183,6 +183,7 @@ Only when `docs/` names break the current, explicitly kept or selected conventio
 
    Adding date provenance or converting type is a one-time, explicitly approved migration edit. After adoption, snapshot bodies remain immutable except for ticking a to-do checkbox.
 5. Execute every approved rename without staging. Use unique temporary names for case-only renames and cycles, then move to final names. Search the repo case-insensitively for references to each old path, including relative links between docs. Update references in living docs, AI instructions and config. Do not edit snapshot bodies merely to update an outbound link; report stale outbound links from snapshots. References in application code are listed for the final report, not edited.
+6. Verify each operation before drafting references: the destination exists, the source no longer exists, and the resulting bytes match the approved body edits. If any rename fails, stop that rename batch and restore every affected source from its temporary or partial destination without overwriting another path; verify each restored path and its pre-rename bytes. Treat a fully restored rename as not applied, keep every pointer on the existing path, and rebuild dependent drafts. If restoration fails or attribution is uncertain, stop all dependent writes and report an open conflict naming every current path. Never publish a future-state pointer or ask the user to run a command while continuing as though it succeeded.
 
 ## Step 5: Propose the .ai/ structure
 
@@ -190,9 +191,12 @@ In a focused update, preserve the existing structure. Propose a new file only wh
 
 For a bootstrap, full re-audit or migration, show the topics found in Steps 1-3, then ask for the structure:
 
-- **Focused files (Recommended)**: `.ai/architecture.md` for boundaries and data flow, `.ai/code-style.md` for language-level rules, plus approved optional topics.
+- **Focused files (Recommended)**: separate files for approved topics, such as `.ai/architecture.md` for boundaries and data flow and `.ai/code-style.md` for language-level rules. Create each file only if its interview approves at least one rule.
 - **Compact file**: `.ai/project.md` with separate topic headings; use only when the expected result stays under 300 lines.
 - **Custom structure**: the user names or groups files; validate that every approved topic has exactly one home and no file mixes conflicting scopes.
+
+The structure choice decides where approved rules would live; it does not approve
+a topic or require an empty file.
 
 If the language of an empty repo is still undecided, leave out `.ai/code-style.md` and every file whose rules depend on the language (e.g. testing, api), and say they can be added by running the skill again once it is chosen.
 
@@ -214,7 +218,7 @@ If the user asks for fewer rounds, combine a file's topic list and its rule ques
 
 For each approved file:
 
-1. **Topics.** List the topics you intend to cover as a multi-select; the user strikes or adds. Name the rules already decided in Step 3 for this file, so the user sees them. Research only after the topics are confirmed. In a focused update, do this only for a new file or a file whose scope genuinely changed.
+1. **Topics.** List the topics you intend to cover as a multi-select; the user strikes or adds. Name the rules already decided in Step 3 for this file, so the user sees them. Always offer **No topics for now** as an explicit, mutually exclusive option; never hide deferral in free text. Put at most three topic candidates beside it in the first question. If the user selects a topic, ask about any remaining candidates in the next round (use Apply / Skip when only one remains). If the user selects **No topics for now**, do not ask about remaining candidates. If it is selected together with a topic, ask the user to clarify. When no rule was already accepted for that file, omit the file and every pointer to it rather than creating an empty placeholder. Research only after the topics are confirmed. In a focused update, do this only for a new file or a file whose scope genuinely changed.
 2. **One question per rule.** Research each topic (Principles: primary sources, fetched), then offer up to 4 options (the tool's limit) from the list below. Merge genuinely equivalent options; when five remain meaningful, use the **Show more options** flow under Asking questions:
    - **Best practice**: current guidance from primary sources, with URL.
    - **Common in the ecosystem**: what most well-maintained projects of this stack do, if different.
@@ -244,7 +248,7 @@ For each approved file:
 
 Last reviewed: <today>
 
-<1-3 sentences: what this is. Only facts from the repo or the user.>
+<1-3 sentences: what this is. Only durable facts from the repo or the user. Do not describe the temporary absence of code, manifests, commands or tooling.>
 
 ## Commands
 
@@ -280,7 +284,7 @@ Detailed rules live in `.ai/`. Read the matching file before working in that are
 - Before planning a feature or changing <the main area>: check `docs/`<, starting with the most relevant file>.
 ```
 
-Commands: first identify the repository's real orchestrator and every area it covers. In a single-project repository, list the most useful exact commands for install, dev, build, test, lint and typecheck. In a multi-project repository without a valid aggregate, organize commands by area and include enough to cover each area; concise pointers to each area's manifest may replace repetitive bullets. A command is valid when its manifest/script/config and required project dependency or documented toolchain exist; the executable need not be installed on the machine running this skill. Mark a valid command that could not be executed here as `not run here: <environment reason>` in the final report, not as repository migration work. If a command runs but has a known baseline failure, say so beside it in `AGENTS.md`, distinguish that baseline from failures caused by new work, and give a verified changed-file or package-scoped alternative when one exists. Never publish a planned command, an invalid aggregate whose transitive task is missing or broken, or a command from a failed dependency install. In a multi-project repository, cover every area or state explicitly that it has no structurally valid project command or no project-specific rule; never point readers to `.ai/` as the location of missing commands. Write the Docs section only when Step 4 produced at least one accepted statement. When Step 2 created an initial sketch, name it in a read-trigger bullet only if Step 4's selected policy authorized that pointer, and label it a possibly outdated snapshot. Leave out other sections that would be empty, boilerplate that does not apply, and pointers to files that were not written. Adapt the Rules pointers to the structure chosen in Step 5. On bootstrap, migration or full re-audit, rewrite an existing `AGENTS.md` or `.ai/` file into this template: keep the Keep and Rewrite rules from Step 3, turn tool-covered rules into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip). In a focused update, make the smallest coherent edit and show only that diff.
+Commands: first identify the repository's real orchestrator and every area it covers. In a single-project repository, list the most useful exact commands for install, dev, build, test, lint and typecheck. In a multi-project repository without a valid aggregate, organize commands by area and include enough to cover each area; concise pointers to each area's manifest may replace repetitive bullets. A command is valid when its manifest/script/config and required project dependency or documented toolchain exist; the executable need not be installed on the machine running this skill. Mark a valid command that could not be executed here as `not run here: <environment reason>` in the final report, not as repository migration work. If a command runs but has a known baseline failure, say so beside it in `AGENTS.md`, distinguish that baseline from failures caused by new work, and give a verified changed-file or package-scoped alternative when one exists. Never publish a planned command, an invalid aggregate whose transitive task is missing or broken, or a command from a failed dependency install. In a multi-project repository, cover every area or state explicitly that it has no structurally valid project command or no project-specific rule; never point readers to `.ai/` as the location of missing commands. Write the Docs section only when Step 4 produced at least one accepted statement. When Step 2 created an initial sketch, name its exact path in a read-trigger bullet only if Step 4's selected policy authorized that pointer, and label it a possibly outdated snapshot; a generic pointer such as "the most relevant file" does not satisfy this. Leave out other sections that would be empty, boilerplate that does not apply, and pointers to files that were not written. Adapt the Rules pointers to the structure chosen in Step 5. On bootstrap, migration or full re-audit, rewrite an existing `AGENTS.md` or `.ai/` file into this template: keep the Keep and Rewrite rules from Step 3, turn tool-covered rules into the one-line-per-tool pointer below, drop the deleted ones, and show the user the new content and what was dropped before writing (Apply / Skip). In a focused update, make the smallest coherent edit and show only that diff.
 
 Each `.ai/` file:
 
@@ -310,6 +314,11 @@ Before writing, check every statement about the current code (what exists, where
 The command-validity invariant applies everywhere, not only the `AGENTS.md` Commands section. Before retaining, importing or adding a command in policy or docs, verify every transitive script, project dependency, manifest, workspace and required config exists after approved writes. A missing local executable is an execution limitation, not proof that a repository command is invalid. An aggregate task is invalid when any covered package command is missing or broken. A nonzero exit caused by existing code violations is valid but must be disclosed beside the command and tracked as migration work; a command with missing project wiring must be omitted or shown as a known broken orchestrator target, never silently replaced. Never weaken or discard the durable practice behind an invalid command. Show exact command-free wording and ask Apply / Skip. For a command-only rule with missing project wiring, offer **Defer as migration work (Recommended)**, **Drop the rule**, and **Stop for project fix**. **Defer** creates one command-work row and names the command only there. A machine-local tool absence goes only in check results and creates no repository to-do. Do not edit a task runner or workspace merely to make a command look complete unless the user approved every dependency/config change and the aggregate is then structurally valid. This gate also applies to commands imported from additional instruction files and accepted Keep verdicts.
 
 Match every proposed rule to exactly one entry in the Step 6.5 decision record. Repo facts may populate the project summary, commands and pointers; they never authorize new unchecked policy. Drop any unmatched new rule instead of inferring a preference. A rule may end in `Source: <URL>` only when the recorded supporting sentence entails its complete normative content. Documentation for a mechanism does not authorize a project-specific value or contract built on that mechanism: mark that rule `Project decision` instead. Project decisions include a durable reason when one exists; never invent one or store a person's identity as provenance. If one sentence mixes independently useful sourced and project-decision requirements, split it. `AGENTS.md` indexes detailed rules and must not duplicate them. Every `.ai/` rule has exactly one terminal basis/checking marker—`Enforced in CI by`, `Checked by`, `Source`, or `Project decision`—and contains none of the other three. Use that exact marker directly; prefixes such as `Basis: Project decision` are invalid. Rules are short imperatives. Code examples are complete and working, never placeholders.
+
+Do not narrow or expand an approved rule by adding an implementation technique,
+example or alternative that the selected option did not authorize. For example,
+"no real network" does not authorize requiring fakes, mocks or a local server.
+Ask separately before adding such a method.
 
 Then, in this order:
 
@@ -347,12 +356,12 @@ Before review, reconcile anything left for a separate change (code that breaks t
 - Do not add an issue already represented by an equivalent open row.
 - Offer to tick a row only when the issue is proven resolved.
 - Never append new work to an existing snapshot.
-- For new work, use `docs/todo/conventions-migration_<today>.md`; if it exists, use a unique topic such as `conventions-migration-follow-up_<today>.md`, then `...-follow-up-2_<today>.md`.
+- Name new files `docs/todo/<descriptive-topic>_<today>.md`. For one coherent migration, use its topic (for example `react-migration-to-v18_<today>.md`); for mixed convention work, use `conventions-migration_<today>.md`. Preserve every existing valid topic name. On collision, use `<topic>-follow-up_<today>.md`, then `<topic>-follow-up-2_<today>.md`.
 
 If new rows remain, show this draft and ask Apply / Skip:
 
 ```markdown
-# Conventions migration
+# <Descriptive topic>
 
 Written on <today>. Tick items when done; put new items in a new dated file.
 

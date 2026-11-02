@@ -1,0 +1,3 @@
+# Architecture
+
+Current workspace boundaries.

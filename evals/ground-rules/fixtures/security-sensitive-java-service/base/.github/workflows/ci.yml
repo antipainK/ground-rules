@@ -1,0 +1,4 @@
+jobs:
+  verify:
+    steps:
+      - run: ./mvnw verify
