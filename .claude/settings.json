@@ -8,7 +8,12 @@
         "SendMessage",
         "Agent(general-purpose)",
         "Agent(eval-reviewer)",
-        "Bash(evals/ground-rules/scripts/*)"
+        "Bash(evals/ground-rules/scripts/new-run.sh *)",
+        "Bash(evals/ground-rules/scripts/prepare-cell.sh *)",
+        "Bash(evals/ground-rules/scripts/snapshot-source.sh *)",
+        "Bash(evals/ground-rules/scripts/check-cell.sh *)",
+        "Bash(evals/ground-rules/scripts/append-log.sh *)",
+        "Bash(evals/ground-rules/scripts/prepare-blind-input.sh *)"
       ],
       "ask": [
         "Edit(/evals/ground-rules/scripts/**)"

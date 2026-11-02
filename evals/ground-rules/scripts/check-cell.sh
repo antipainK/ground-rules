@@ -55,28 +55,22 @@ else
 fi
 
 # 4. every changed path is inside the matrix allowedChangePrefixes
-(cd "$WORKSPACE" && find . -path ./.git -prune -o -type f -print) | sed 's|^\./||' | sort > "$TMP/current.txt"
-sed 's|^\./||' "$CELL/initial-files.txt" | sort > "$TMP/initial.txt"
-comm -13 "$TMP/initial.txt" "$TMP/current.txt" > "$TMP/created.txt"
-comm -23 "$TMP/initial.txt" "$TMP/current.txt" > "$TMP/deleted.txt"
-echo "$TRACKED" | sed '/^$/d' > "$TMP/modified.txt"
-if [ -d "$CELL/pre-run-copies" ]; then
-  (cd "$CELL/pre-run-copies" && find . -type f -print) | sed 's|^\./||' > "$TMP/preexisting.txt"
-  while IFS= read -r f; do
-    if [ -f "$WORKSPACE/$f" ] && ! cmp -s "$CELL/pre-run-copies/$f" "$WORKSPACE/$f"; then
-      echo "$f" >> "$TMP/modified.txt"
-    fi
-  done < "$TMP/preexisting.txt"
-fi
-cat "$TMP/created.txt" "$TMP/deleted.txt" "$TMP/modified.txt" | sort -u > "$TMP/changed.txt"
+write_changed_lists "$TMP"
 
+PYRC=0
 python3 -I -c 'import json,sys
 m = json.load(open(sys.argv[1]))
 s = [x for x in m["scenarios"] if x["id"] == sys.argv[2]]
-print("\n".join(s[0]["allowedChangePrefixes"]) if s else "")' "$EVAL_DIR/matrix.json" "$SCENARIO" > "$TMP/prefixes.txt" || true
+if not s:
+    sys.exit(3)
+print("\n".join(s[0]["allowedChangePrefixes"]))' "$EVAL_DIR/matrix.json" "$SCENARIO" > "$TMP/prefixes.txt" 2> /dev/null || PYRC=$?
 
-if [ ! -s "$TMP/prefixes.txt" ] || [ "$(head -c1 "$TMP/prefixes.txt")" = "" ]; then
+if [ "$PYRC" -eq 3 ]; then
   row "changed paths inside allowed prefixes" FAIL "scenario not found in matrix.json"
+elif [ "$PYRC" -ne 0 ]; then
+  row "changed paths inside allowed prefixes" FAIL "matrix.json is unreadable or malformed"
+elif ! grep -q . "$TMP/prefixes.txt"; then
+  row "changed paths inside allowed prefixes" FAIL "no allowedChangePrefixes defined for the scenario"
 else
   OUTSIDE=""
   while IFS= read -r p; do

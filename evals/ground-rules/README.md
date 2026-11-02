@@ -43,6 +43,7 @@ state), validates them, and works only inside `evals/ground-rules/results/`.
 | `snapshot-source.sh` | Records and compares the source repository's HEAD and status (`before`, `after`, `compare`) |
 | `check-cell.sh` | Runs the deterministic checks and prints one table; exits nonzero on any failure |
 | `append-log.sh` | Appends a pending file written with the Write tool to `transcript.md` or `authorization.ndjson` |
+| `prepare-blind-input.sh` | Builds the `blind-input/` folder (rubric, hard failures, changed paths) for the final blind evaluators |
 | `test-scripts.sh` | Tests for the scripts and for the settings below (`scripts`, `config` or `all`) |
 
 The `rerun` state and scenarios with scripted pre-run edits (`legacy-node-service`
@@ -51,15 +52,19 @@ fresh) are not supported by `prepare-cell.sh` yet.
 The shared `.claude/settings.json` publishes three entries so a clone needs no
 setup:
 
-- `permissions.allow`: `Bash(evals/ground-rules/scripts/*)`. If a script call still
-  prompts in your session, use the absolute path in the rule.
+- `permissions.allow`: one `Bash(evals/ground-rules/scripts/<name>.sh *)` entry per
+  script, not a folder wildcard, so a path such as `scripts/../..` cannot match.
+  `test-scripts.sh` is deliberately not listed, so running the whole suite still
+  asks. If a script call still prompts in your session, use the absolute path in the
+  rule.
 - `permissions.ask`: `Edit(/evals/ground-rules/scripts/**)`, so changing a script
   always asks.
 - `sandbox.filesystem.denyWrite`: the scripts folder, so Bash cannot rewrite the
   scripts when the sandbox is on. Without the sandbox only the `ask` rule applies.
 
-The allow rule matches any arguments, so the scripts do the validation. Managed
-settings always take precedence over these entries.
+Each allow entry matches any arguments to its script, so the scripts validate the
+run id, scenario and state against the whole argument and refuse anything else.
+Managed settings always take precedence over these entries.
 
 Reviewers and blind evaluators run as the `eval-reviewer` agent
 (`.claude/agents/eval-reviewer.md`), which can only read and search files
