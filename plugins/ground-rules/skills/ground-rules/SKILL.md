@@ -30,7 +30,10 @@ docs/              human + AI design docs, plans, decisions
 
 ## Asking questions
 
-Use multiple choice (`AskUserQuestion`):
+Use multiple choice (`AskUserQuestion`). If that tool is unavailable, render the same
+numbered questions and options in plain text, end the turn, and continue from the user's
+next reply. Tool unavailability never authorizes skipping decisions, choosing for the user,
+or ending the workflow early.
 
 - At most 4 questions per call, 2-4 options each. The tool adds "Other" for tweaks; never add your own "Other" option. A question with fewer than 2 real options is a statement: say it in the message instead.
 - Every choice question has exactly one option marked "(Recommended)", listed first, unless the user is only stating a fact ("which date is it?") or no option has a source, repo evidence, stated preference, personal config or clearly labeled skill-process judgment behind it (then mark none and say so; when the user asked for help deciding, recommend and say it is your judgment). Process defaults may be recommended only when the description names the operational benefit and trade-off; they never become repository policy without the user's choice. This includes Apply / Skip confirmations: mark the one you'd pick. Multi-select questions are the exception to "exactly one": mark each option you'd actually select. Put the reasoning in the option description.
@@ -230,7 +233,7 @@ For each approved file:
    - If the change will make the current code fail (lint errors, type errors), say so in the option description. The code is not fixed by this skill; failures are reported in Step 10.
    - Never weaken or disable an existing tool rule without asking.
 4. **Open round.** After all questions for a newly created or fully re-audited file are answered, ask with the question tool whether the user has more rules for this file: options "No more rules (Recommended)" and "Suggest some"; the user types their own rules through the free-text field. Skip this round for unchanged files in a focused update. For each typed rule, propose a sharpened wording (specific, checkable) and ask Apply / Skip. On "Suggest some", propose 2-3 complementary rules based on what was chosen, as a multi-select. These follow the same sourcing rules; a design choice without a source is marked as such and recommended only on the grounds in Step 6.2.
-5. **Record** every rule in a run-local decision record: stable ID, destination file, original and destination scope, exact wording, origin (**existing team policy**, **explicit answer**, **accepted Keep/Rewrite verdict**, **accepted enforcement pointer**, or later **accepted review fix**), the current policy text, answer, verdict or finding that authorized it, the reason if the user or source gave one, and how it is checked or the source URL plus the supporting sentence. Existing coherent policy is authorized by its current exact wording and scope; infer no prior-run decision. Keep this record only for Step 9 and never write it into repository files. A rule carrying a citation gets the same record when you can fetch the page; if you can't, say so and the review skips that citation.
+5. **Record** every rule in a run-local decision record: stable ID, destination file, original and destination scope, exact wording, origin (**existing team policy**, **explicit answer**, **accepted Keep/Rewrite verdict**, **accepted enforcement pointer**, or later **accepted review fix**), the current policy text, answer, verdict or finding that authorized it, the reason if the user or source gave one, and how it is checked or the source URL plus the supporting sentence. Existing coherent policy is authorized by its current exact wording and scope; infer no prior-run decision. Record accepted Delete verdicts too: original text, path and scope, displayed verdict and reason, and the answer that accepted the verdict table. A Delete record authorizes omission and has no destination wording. Keep this record only for Step 9 and never write it into repository files. A rule carrying a citation gets the same record when you can fetch the page; if you can't, say so and the review skips that citation.
 
 ## Step 7: Write the files
 
@@ -366,7 +369,7 @@ A published `After migration.` rule and an accepted deferred command must each h
 
 Applying the to-do draft authorizes only that file. If migration work exists, include at most one pointer in each relevant `AGENTS.md` section: the Docs bullet "Open migration tasks are in `docs/todo/`." and, only when useful, the Workflow bullet "When you finish a migration item listed in `docs/todo/`, tick it there." Show the separate diff and ask Apply / Skip. Write only approved files and bump `Last reviewed` only when content changes. Reviewers must see the final artifacts.
 
-Launch two general-purpose subagents independently. Neither sees the interview transcript, rejected alternatives, expected artifacts, persona script or the other review. Give each only the repository, the list of written and changed files (not `.claude/skills/`), and sanitized copies of the full Step 6.5 decision record and Move record: IDs, exact final wording/content, origin, authorizing current policy text, selection, verdict or finding, original and destination path/scope, checking mechanism, URL and supporting sentence. These records are review evidence, not repository content. Give each this checklist:
+Launch two general-purpose subagents independently. Neither sees the interview transcript, rejected alternatives, expected artifacts, persona script or the other review. Give each only the repository, the list of written and changed files (not `.claude/skills/`), and sanitized copies of the full Step 6.5 decision record and Move record: IDs, exact final wording/content, origin, authorizing current policy text, selection, verdict or finding, original and destination path/scope, checking mechanism, URL and supporting sentence. Include accepted Delete records; a former rule with a matching record is authorized as absent and is not missing policy or missing approval. These records are review evidence, not repository content. Give each this checklist:
 
 - Rules that contradict each other, across files or with tool config.
 - Rules with no exact authorizing entry in the decision record, or two policy files that state the same detailed rule.
@@ -385,7 +388,7 @@ Launch two general-purpose subagents independently. Neither sees the interview t
 - Migration to-do rows that describe only the reviewer's machine or lack the evidence required by their row type. A rule row needs a semantically matching current rule; a command-work row needs `Command work approved <ISO date>: <exact command>` matching missing project wiring and its creation-run **Defer as migration work** record; a baseline row needs the exact command, affected scope and verified failure. None creates active policy. A row whose rule no longer exists is obsolete and report-only; optionally offer a new dated follow-up that supersedes it. Equivalent rewording and stale outbound links in immutable snapshots are also report-only.
 - Snapshot bodies changed without the explicit one-time migration choice, unresolved rename collisions, or broken updated references.
 
-Tell each reviewer to give file:line evidence (and the quoted source text, for citation findings) for every finding and classify it as blocker, major, deterministic minor or stylistic nitpick. Verify every finding yourself against the files and discard false positives. Present the confirmed ones in four groups:
+Tell each reviewer to give file:line evidence (and the quoted source text, for citation findings) for every finding and classify it as blocker, major, deterministic minor or stylistic nitpick. Verify every finding yourself against the files and decision records and discard false positives. Never relay an unverified reviewer finding as requiring user action. If an accepted verdict record settles it, discard it and do not reopen or reconfirm it. Present the confirmed ones in four groups:
 
 1. **Fixes to the written files**: ask which to apply (multi-select).
 2. **Needs a decision**: ask, or leave open if the user prefers.
@@ -398,11 +401,13 @@ Before Step 10, perform a hard review gate over every confirmed blocker, major a
 
 For every accepted review fix, update the matching decision-record wording and set its origin to **accepted review fix**, preserving the prior authorization and adding the accepted finding. A review item that needs a new policy choice creates a new **explicit answer** record. Drop a rule when neither exists.
 
-Report discarded findings in one line each, with the reason. After applying fixes, re-read the changed lines and update the transient decision record, then launch two new blind reviews with fresh contexts. Repeat until neither finds a blocker, major or deterministic minor, or the user explicitly retains every remaining finding as an open conflict. Only the clean branch passes the release-quality gate. A finding is a nondeterministic nitpick only when it violates no invariant, is stylistic, reviewers disagree, and it does not reproduce in two further fresh reviews.
+Report discarded findings in one line each, with the reason. Discarded findings stay closed unless new repository evidence invalidates the decision record; reviewer repetition alone never reopens them. After applying fixes, re-read the changed lines and update the transient decision record, then launch two new blind reviews with fresh contexts. Repeat until neither finds a blocker, major or deterministic minor, or the user explicitly retains every remaining finding as an open conflict. Only the clean branch passes the release-quality gate. A finding is a nondeterministic nitpick only when it violates no invariant, is stylistic, reviewers disagree, and it does not reproduce in two further fresh reviews.
 
 ## Step 10: Commit and report
 
 Every terminal path, including validate-only and completed-with-conflicts, begins with the exact heading `## Ground Rules final report`.
+
+Before issuing a final or revised final report, apply every clear fix authorized in the latest reply. Never treat a decision as withdrawn unless the user explicitly withdraws it; quote that withdrawing text in the report.
 
 1. List exactly the files this skill created, changed, renamed or deleted. For a path that was already dirty, show **pre-existing** and **Ground Rules contribution** separately from the saved baseline. List untouched pre-existing work in its own row; never count it as this run's output or omit a path the skill also changed.
 2. List what is not verified: checks that failed or couldn't run, dependencies not installed, lockfiles out of sync.
