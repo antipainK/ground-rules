@@ -13,6 +13,7 @@ case "$GROUP" in scripts | config | all) ;; *) die "usage: test-scripts.sh [scri
 SCRIPTS="$EVAL_DIR/scripts"
 TEST_RUN="20000101T000000Z-0e5700"
 GENERATED=""
+TMP_REPO=""
 PASSED=0
 FAILED=0
 SKIPPED=0
@@ -53,6 +54,7 @@ expect_check_fail() {
 cleanup() {
   rm -rf "${RESULTS:?}/$TEST_RUN"
   if [ -n "$GENERATED" ]; then rm -rf "${RESULTS:?}/$GENERATED"; fi
+  if [ -n "$TMP_REPO" ]; then rm -rf "$TMP_REPO"; fi
 }
 trap cleanup EXIT
 
@@ -89,8 +91,20 @@ run_scripts_group() {
   expect_fail T41 "invalid scenario name" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN" "-x" fresh
   if [ "$LS_BEFORE" = "$(ls -A "$RESULTS" | cksum)" ]; then pass T42; else fail T42 "results folder changed after rejected arguments"; fi
 
-  # T6 results-ignored guard exists
-  if grep -q 'check-ignore' "$SCRIPTS/common.sh"; then pass T6; else fail T6 "no git check-ignore guard in common.sh"; fi
+  # T6 the results-ignored guard refuses when results/ is not ignored (run in a throwaway repository)
+  TMP_REPO=$(mktemp -d "${TMPDIR:-/tmp}/ground-rules-test.XXXXXX")
+  if [ -n "$TMP_REPO" ] && [ -d "$TMP_REPO" ]; then
+    mkdir -p "$TMP_REPO/evals/ground-rules/scripts"
+    cp "$SCRIPTS/common.sh" "$SCRIPTS/new-run.sh" "$TMP_REPO/evals/ground-rules/scripts/"
+    git init -q "$TMP_REPO" 2> /dev/null
+    expect_fail T6a "not ignored" "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
+    echo 'evals/ground-rules/results/' > "$TMP_REPO/.gitignore"
+    expect_ok T6b "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
+    rm -rf "$TMP_REPO"
+  else
+    fail T6 "could not create a temporary directory"
+  fi
+  TMP_REPO=""
 
   # T7 fresh cell
   expect_ok T7-run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN" empty-python-cli fresh
@@ -144,8 +158,11 @@ run_scripts_group() {
   expect_ok T13-after "$SCRIPTS/snapshot-source.sh" after "$TEST_RUN"
   run "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq identical; then pass T13; else fail T13 "$OUT"; fi
+  if ls -A "$RESULTS/$TEST_RUN" | grep -Fq '.snap-'; then fail T13-clean "temporary snapshot files were left behind"; else pass T13-clean; fi
   echo "tampered" >> "$RESULTS/$TEST_RUN/source-status.txt"
   expect_fail T14 "status differs" "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
+  echo "tampered" >> "$RESULTS/$TEST_RUN/source-head.txt"
+  expect_fail T14-head "HEAD differs" "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
 
   # T15 to T21 deterministic checks on the fresh cell
   cell_paths "$TEST_RUN" empty-python-cli fresh
@@ -179,6 +196,12 @@ run_scripts_group() {
 
   printf 'token: ghp_%s\n' "$(yes a | head -n 36 | tr -d '\n')" > "$WORKSPACE/docs/leak.md"
   expect_check_fail T20 "no secret-shaped value"
+  printf 'key AKIAIOSFODNN7EXAMPLE\n' > "$WORKSPACE/docs/leak.md"
+  expect_check_fail T20-aws "no secret-shaped value"
+  printf 'x xoxb-1234567890-abcdefghij\n' > "$WORKSPACE/docs/leak.md"
+  expect_check_fail T20-slack "no secret-shaped value"
+  printf -- '-----BEGIN RSA PRIVATE KEY-----\n' > "$WORKSPACE/docs/leak.md"
+  expect_check_fail T20-pem "no secret-shaped value"
   rm "$WORKSPACE/docs/leak.md"
   expect_check_pass T20-undo
 
@@ -214,10 +237,39 @@ run_scripts_group() {
   rm "$WORKSPACE/.ai/long.md"
   expect_check_pass T47-undo
 
+  # T53 to T55 nested AGENTS.md files and docs are checked too
+  mkdir -p "$WORKSPACE/docs/sub"
+  printf '# Nested\n\n<!-- ground-rules:managed -->\n' > "$WORKSPACE/docs/sub/AGENTS.md"
+  expect_check_fail T53 "no ownership marker or hash registry"
+  yes line | head -n 151 > "$WORKSPACE/docs/sub/AGENTS.md"
+  expect_check_fail T54 "AGENTS.md at most 150 lines"
+  rm -rf "$WORKSPACE/docs/sub"
+  printf '# Doc\n\n<!-- ground-rules:managed -->\n' > "$WORKSPACE/docs/marked.md"
+  expect_check_fail T55 "no ownership marker or hash registry"
+  rm "$WORKSPACE/docs/marked.md"
+  expect_check_pass T53-undo
+
+  # T56 a command configured in the agent-writable git-data does not run during checks
+  MARK="$CELL/fsmonitor-ran"
+  rm -f "$MARK"
+  fgit config core.fsmonitor "sh -c 'touch $MARK' --"
+  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" status --porcelain=v2 > /dev/null 2>&1
+  if [ -e "$MARK" ]; then
+    rm -f "$MARK"
+    check_cell
+    if [ ! -e "$MARK" ]; then pass T56; else fail T56 "core.fsmonitor command ran during check-cell"; fi
+  else
+    skip T56 "control did not fire: this Git version did not run the core.fsmonitor command"
+  fi
+  rm -f "$MARK"
+  fgit config --unset core.fsmonitor
+  expect_check_pass T56-undo
+
   # T50 and T51 blind-input folder
   expect_ok T50-run "$SCRIPTS/prepare-blind-input.sh" "$TEST_RUN" empty-python-cli fresh
   BLIND_FILES=$(ls -A "$CELL/blind-input" | sort | tr '\n' ' ')
   if [ "$BLIND_FILES" = "changed-paths.txt rubric.json " ]; then pass T50-files; else fail T50-files "unexpected contents: $BLIND_FILES"; fi
+  if ls -A "$CELL" | grep -Fq '.blind-'; then fail T50-clean "temporary folders were left behind"; else pass T50-clean; fi
   if python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if d.get("rubric") and d.get("hardFailures") else 1)' "$CELL/blind-input/rubric.json"; then pass T50-rubric; else fail T50-rubric "rubric.json lacks rubric or hardFailures"; fi
@@ -303,16 +355,18 @@ print("; ".join(problems) if problems else "ok")
 sys.exit(1 if problems else 0)' "$SETTINGS"
   if [ "$RC" -eq 0 ]; then pass T28; else fail T28 "$OUT"; fi
 
-  # T29 protection entries
+  # T29 protection entries for the scripts, the settings file, the agent and the skill
   run python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 ask = d.get("permissions", {}).get("ask", [])
 deny = d.get("sandbox", {}).get("filesystem", {}).get("denyWrite", [])
 problems = []
-if "Edit(/evals/ground-rules/scripts/**)" not in ask:
-    problems.append("ask lacks Edit(/evals/ground-rules/scripts/**)")
-if not any("evals/ground-rules/scripts" in p for p in deny):
-    problems.append("sandbox.filesystem.denyWrite lacks the scripts folder")
+for e in ["Edit(/evals/ground-rules/scripts/**)", "Edit(/.claude/settings.json)", "Edit(/.claude/agents/**)", "Edit(/.claude/skills/**)"]:
+    if e not in ask:
+        problems.append("ask lacks " + e)
+for part in ["evals/ground-rules/scripts", ".claude/agents"]:
+    if not any(part in p for p in deny):
+        problems.append("sandbox.filesystem.denyWrite lacks " + part)
 print("; ".join(problems) if problems else "ok")
 sys.exit(1 if problems else 0)' "$SETTINGS"
   if [ "$RC" -eq 0 ]; then pass T29; else fail T29 "$OUT"; fi
@@ -321,20 +375,25 @@ sys.exit(1 if problems else 0)' "$SETTINGS"
   HITS=$(grep -nE '<<|<\(|\$\(|python3 -I -' "$SKILL")
   if [ -z "$HITS" ]; then pass T30; else fail T30 "$(echo "$HITS" | head -5 | tr '\n' ' ')"; fi
 
-  # T31 safety boundary unchanged
-  sed -n '/^## Safety boundary$/,/^## Inputs$/{/^## Inputs$/!p;}' "$SKILL" > "$RESULTS/.boundary-now.txt"
-  if cmp -s "$RESULTS/.boundary-now.txt" "$SCRIPTS/testdata/skill-boundary.txt"; then pass T31; else fail T31 "boundary section differs from testdata/skill-boundary.txt"; fi
-  rm -f "$RESULTS/.boundary-now.txt"
+  # T31 safety boundary unchanged (compared through a temporary file, so results/ need not exist)
+  BOUNDARY_NOW=$(mktemp "${TMPDIR:-/tmp}/ground-rules-boundary.XXXXXX")
+  sed -n '/^## Safety boundary$/,/^## Inputs$/{/^## Inputs$/!p;}' "$SKILL" > "$BOUNDARY_NOW"
+  if cmp -s "$BOUNDARY_NOW" "$SCRIPTS/testdata/skill-boundary.txt"; then pass T31; else fail T31 "boundary section differs from testdata/skill-boundary.txt"; fi
+  rm -f "$BOUNDARY_NOW"
 
-  # T35 reviewer agent is read-only, T36 skill uses it, T37 settings allow it
+  # T35 reviewer agent is read-only, T36 skill launches it in both places, T37 settings allow it (and do not deny it)
   AGENT="$GR_ROOT/.claude/agents/eval-reviewer.md"
   TOOLS_LINE=$(grep -m1 '^tools:' "$AGENT" 2> /dev/null)
   if [ "$TOOLS_LINE" = "tools: Read, Glob, Grep" ]; then pass T35; else fail T35 "agent tools line is: ${TOOLS_LINE:-missing}"; fi
-  if grep -Fq 'eval-reviewer' "$SKILL"; then pass T36; else fail T36 "skill does not name eval-reviewer"; fi
-  if grep -Fq '"Agent(eval-reviewer)"' "$SETTINGS"; then pass T37; else fail T37 "settings lack Agent(eval-reviewer)"; fi
+  if [ "$(grep -c 'fresh `eval-reviewer`' "$SKILL")" -ge 2 ]; then pass T36; else fail T36 "skill does not launch eval-reviewer for both review loops"; fi
+  run python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1])).get("permissions", {})
+ok = "Agent(eval-reviewer)" in d.get("allow", []) and "Agent(eval-reviewer)" not in d.get("deny", [])
+sys.exit(0 if ok else 1)' "$SETTINGS"
+  if [ "$RC" -eq 0 ]; then pass T37; else fail T37 "Agent(eval-reviewer) is not allowed, or is denied, in settings"; fi
 
   # T52 skill builds the blind inputs with the script
-  if grep -Fq 'prepare-blind-input.sh' "$SKILL"; then pass T52; else fail T52 "skill does not use prepare-blind-input.sh"; fi
+  if grep -Fq 'prepare-blind-input.sh <run-id> <scenario> <state>' "$SKILL"; then pass T52; else fail T52 "skill does not use prepare-blind-input.sh <run-id> <scenario> <state>"; fi
 
   # T32 README names every script and the permission entries
   MISSING=""

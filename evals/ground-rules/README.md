@@ -57,10 +57,17 @@ setup:
   `test-scripts.sh` is deliberately not listed, so running the whole suite still
   asks. If a script call still prompts in your session, use the absolute path in the
   rule.
-- `permissions.ask`: `Edit(/evals/ground-rules/scripts/**)`, so changing a script
-  always asks.
-- `sandbox.filesystem.denyWrite`: the scripts folder, so Bash cannot rewrite the
-  scripts when the sandbox is on. Without the sandbox only the `ask` rule applies.
+- `permissions.ask`: `Edit(...)` for the scripts folder, `.claude/settings.json`,
+  `.claude/agents/` and `.claude/skills/`, so changing a script, the permissions,
+  the reviewer agent or the skill always asks.
+- `sandbox.filesystem.denyWrite`: the scripts folder and `.claude/agents`, so Bash
+  cannot rewrite them when the sandbox is on. Without the sandbox only the `ask`
+  rules apply.
+
+The fixture repositories live next to the cells, where the evaluated agent could
+edit their Git configuration. The scripts therefore run fixture Git with
+`core.fsmonitor` and `core.hooksPath` overridden. That covers the two settings that
+run a command on every status call; it is a partial mitigation, not a sandbox.
 
 Each allow entry matches any arguments to its script, so the scripts validate the
 run id, scenario and state against the whole argument and refuse anything else.

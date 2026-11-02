@@ -16,13 +16,17 @@
         "Bash(evals/ground-rules/scripts/prepare-blind-input.sh *)"
       ],
       "ask": [
-        "Edit(/evals/ground-rules/scripts/**)"
+        "Edit(/evals/ground-rules/scripts/**)",
+        "Edit(/.claude/settings.json)",
+        "Edit(/.claude/agents/**)",
+        "Edit(/.claude/skills/**)"
       ]
     },
     "sandbox": {
       "filesystem": {
         "denyWrite": [
-          "./evals/ground-rules/scripts"
+          "./evals/ground-rules/scripts",
+          "./.claude/agents"
         ]
       }
     }
