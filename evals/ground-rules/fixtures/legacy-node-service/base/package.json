@@ -1,0 +1,15 @@
+{
+  "name": "legacy-service",
+  "private": true,
+  "packageManager": "npm@10.9.4",
+  "scripts": {
+    "test": "node --test",
+    "lint": "eslint . && node scripts/baseline-fail.js",
+    "format:check": "prettier --check .",
+    "format:write": "prettier --write ."
+  },
+  "devDependencies": {
+    "eslint": "9.18.0",
+    "prettier": "3.4.2"
+  }
+}

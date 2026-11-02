@@ -1,0 +1,6 @@
+version: '3'
+tasks:
+  test:
+    cmds: [pnpm -r test, go test ./workers/..., python -m pytest tools/data]
+  lint:
+    cmds: [pnpm -r lint, gofmt -d workers, ruff check tools/data]
