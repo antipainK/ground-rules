@@ -391,6 +391,16 @@ Give each reviewer only:
 - the rubric and hard failures from `matrix.json`; and
 - the Ground Rules skill.
 
+Build the inputs with `prepare-blind-input.sh <run-id> <scenario> <state>`. It
+writes `blind-input/rubric.json` (the rubric and hard failures) and
+`blind-input/changed-paths.txt` in the cell directory. Then write the sanitized
+authorization record to `blind-input/authorization.json` with the Write tool,
+without rejected responses or harness findings. Name that folder, the pristine
+base fixture, the final workspace, and the Ground Rules skill as the reviewer's
+only inputs, and tell it not to read anything else under
+`evals/ground-rules/results/`. The restriction is by instruction, because Read
+cannot be limited per agent.
+
 Do not provide persona prose, rejected alternatives, target expectations,
 scenario invariants, another review, or prior run results.
 

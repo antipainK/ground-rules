@@ -1,7 +1,7 @@
 #!/bin/bash
 # Shared helpers for the Ground Rules eval scripts. Source this file; do not run it.
-# Every script takes plain arguments only and validates them here, so a broad
-# allow rule on this folder never grants more than the scripts themselves do.
+# Every script takes plain arguments only and validates them here, so a permission
+# rule on a script never grants more than the script itself does.
 
 set -eu
 
@@ -15,12 +15,20 @@ die() {
   exit 1
 }
 
+# Validation matches the whole argument. grep matches line by line and would accept a
+# value with an embedded newline, so newlines are rejected first and bash pattern
+# matching, which anchors on the full string, does the rest.
+RUN_ID_RE='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$'
+SCENARIO_RE='^[a-z0-9][a-z0-9-]*$'
+
 validate_run_id() {
-  echo "$1" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$' || die "invalid run id: $1"
+  case "$1" in *$'\n'*) die "invalid run id: contains a newline" ;; esac
+  [[ $1 =~ $RUN_ID_RE ]] || die "invalid run id: $1"
 }
 
 validate_scenario() {
-  echo "$1" | grep -Eq '^[a-z0-9-]+$' || die "invalid scenario name: $1"
+  case "$1" in *$'\n'*) die "invalid scenario name: contains a newline" ;; esac
+  [[ $1 =~ $SCENARIO_RE ]] || die "invalid scenario name: $1"
   [ -d "$FIXTURES/$1/base" ] || die "unknown scenario: $1"
 }
 
@@ -52,4 +60,27 @@ cell_paths() {
 # repository is never discovered.
 fgit() {
   GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" "$@"
+}
+
+# Writes created.txt, deleted.txt, modified.txt and changed.txt (one repo-relative path per
+# line) into the existing directory $1, for the cell set up by cell_paths. "Modified" covers
+# tracked files that differ from the baseline and pre-existing untracked files that differ
+# from their saved copy in pre-run-copies/.
+write_changed_lists() {
+  local out="$1"
+  export LC_ALL=C
+  (cd "$WORKSPACE" && find . -path ./.git -prune -o -type f -print) | sed 's|^\./||' | sort > "$out/current.txt"
+  sed 's|^\./||' "$CELL/initial-files.txt" | sort > "$out/initial.txt"
+  comm -13 "$out/initial.txt" "$out/current.txt" > "$out/created.txt"
+  comm -23 "$out/initial.txt" "$out/current.txt" > "$out/deleted.txt"
+  fgit diff --name-only | sed '/^$/d' > "$out/modified.txt"
+  if [ -d "$CELL/pre-run-copies" ]; then
+    (cd "$CELL/pre-run-copies" && find . -type f -print) | sed 's|^\./||' > "$out/preexisting.txt"
+    while IFS= read -r f; do
+      if [ -f "$WORKSPACE/$f" ] && ! cmp -s "$CELL/pre-run-copies/$f" "$WORKSPACE/$f"; then
+        echo "$f" >> "$out/modified.txt"
+      fi
+    done < "$out/preexisting.txt"
+  fi
+  cat "$out/created.txt" "$out/deleted.txt" "$out/modified.txt" | sort -u > "$out/changed.txt"
 }
