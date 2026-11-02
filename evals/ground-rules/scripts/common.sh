@@ -57,9 +57,13 @@ cell_paths() {
 }
 
 # Fixture Git commands always use the qualified form so the enclosing source
-# repository is never discovered.
+# repository is never discovered. The evaluated agent can write the fixture's git-data
+# directory, so the two config entries that run a command on every status call are
+# overridden on the command line (partial mitigation: other config-driven commands
+# such as filter drivers are not neutralised).
 fgit() {
-  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" "$@"
+  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" "$@"
 }
 
 # Writes created.txt, deleted.txt, modified.txt and changed.txt (one repo-relative path per
