@@ -3,6 +3,8 @@
 # Builds <cell>/blind-input/ for the final blind evaluators:
 #   rubric.json        the rubric and hard failures from matrix.json
 #   changed-paths.txt  created, deleted and modified paths, one per line
+# The folder is built aside and moved into place at the end, so a failure leaves nothing
+# behind and the script can be run again.
 # The orchestrator then writes the sanitized authorization record into the same folder
 # as authorization.json with the Write tool. Give the evaluators that folder, the pristine
 # base fixture, the final workspace and the Ground Rules skill, and nothing else.
@@ -18,22 +20,24 @@ BLIND="$CELL/blind-input"
 [ ! -e "$BLIND" ] || die "blind-input already exists: $BLIND"
 
 TMP="$CELL/.blind-tmp"
-rm -rf "$TMP"
-mkdir -p "$TMP"
-trap 'rm -rf "$TMP"' EXIT
+NEW="$CELL/.blind-new"
+rm -rf "$TMP" "$NEW"
+mkdir -p "$TMP" "$NEW"
+trap 'rm -rf "$TMP" "$NEW"' EXIT
 
-mkdir -p "$BLIND"
 write_changed_lists "$TMP"
 
 python3 -I -c 'import json,sys
 m = json.load(open(sys.argv[1]))
 out = {"rubric": m["rubric"], "hardFailures": m["hardFailures"]}
-json.dump(out, open(sys.argv[2], "w"), indent=1)' "$EVAL_DIR/matrix.json" "$BLIND/rubric.json"
+json.dump(out, open(sys.argv[2], "w"), indent=1)' "$EVAL_DIR/matrix.json" "$NEW/rubric.json"
 
-: > "$BLIND/changed-paths.txt"
-sed 's/^/created: /' "$TMP/created.txt" >> "$BLIND/changed-paths.txt"
-sed 's/^/deleted: /' "$TMP/deleted.txt" >> "$BLIND/changed-paths.txt"
-sort -u "$TMP/modified.txt" | sed 's/^/modified: /' >> "$BLIND/changed-paths.txt"
+: > "$NEW/changed-paths.txt"
+sed 's/^/created: /' "$TMP/created.txt" >> "$NEW/changed-paths.txt"
+sed 's/^/deleted: /' "$TMP/deleted.txt" >> "$NEW/changed-paths.txt"
+sort -u "$TMP/modified.txt" | sed 's/^/modified: /' >> "$NEW/changed-paths.txt"
+
+mv "$NEW" "$BLIND"
 
 echo "prepared $BLIND"
 echo "write authorization.json there with the Write tool"

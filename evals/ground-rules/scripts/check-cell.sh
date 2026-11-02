@@ -92,12 +92,21 @@ else
   fi
 fi
 
-# 5. size limits
-if [ -f "$WORKSPACE/AGENTS.md" ]; then
-  N=$(wc -l < "$WORKSPACE/AGENTS.md" | tr -d ' ')
-  if [ "$N" -le 150 ]; then row "AGENTS.md at most 150 lines" PASS "$N lines"; else row "AGENTS.md at most 150 lines" FAIL "$N lines"; fi
-else
+# 5. size limits (every AGENTS.md at any depth, then the .ai files)
+find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -type f -name AGENTS.md -print | sort > "$TMP/agents-files.txt"
+if [ ! -s "$TMP/agents-files.txt" ]; then
   row "AGENTS.md at most 150 lines" PASS "absent"
+else
+  TOOLONG=""
+  while IFS= read -r f; do
+    N=$(wc -l < "$f" | tr -d ' ')
+    [ "$N" -le 150 ] || TOOLONG="$TOOLONG ${f#"$WORKSPACE"/}($N)"
+  done < "$TMP/agents-files.txt"
+  if [ -z "$TOOLONG" ]; then
+    row "AGENTS.md at most 150 lines" PASS "$(wc -l < "$TMP/agents-files.txt" | tr -d ' ') file(s)"
+  else
+    row "AGENTS.md at most 150 lines" FAIL "$TOOLONG"
+  fi
 fi
 LONG=""
 if [ -d "$WORKSPACE/.ai" ]; then
@@ -109,10 +118,10 @@ if [ -d "$WORKSPACE/.ai" ]; then
 fi
 if [ -z "$LONG" ]; then row ".ai files at most 300 lines" PASS "-"; else row ".ai files at most 300 lines" FAIL "$LONG"; fi
 
-# team-owned Markdown: AGENTS.md and .ai/**/*.md
-: > "$TMP/team.txt"
-[ ! -f "$WORKSPACE/AGENTS.md" ] || echo "$WORKSPACE/AGENTS.md" >> "$TMP/team.txt"
+# team-owned Markdown for the marker scan: every AGENTS.md, .ai/**/*.md and docs/**/*.md
+cat "$TMP/agents-files.txt" > "$TMP/team.txt"
 [ ! -f "$TMP/ai-files.txt" ] || cat "$TMP/ai-files.txt" >> "$TMP/team.txt"
+if [ -d "$WORKSPACE/docs" ]; then find "$WORKSPACE/docs" -type f -name '*.md' | sort >> "$TMP/team.txt"; fi
 
 # 6. no ownership marker, hash registry or plugin metadata
 MARKED=""

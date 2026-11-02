@@ -1,7 +1,8 @@
 #!/bin/bash
 # Usage: snapshot-source.sh <before|after|compare> <run-id>
 # Records the source repository's HEAD and status in the run folder, then compares them.
-# The source repository is only read.
+# The source repository is only read. A snapshot is written aside and moved into place,
+# so a failed recording leaves nothing behind and can be retried.
 
 . "$(dirname "$0")/common.sh"
 
@@ -11,9 +12,13 @@ validate_run_id "$2"
 RUN_ROOT="$RESULTS/$2"
 [ -d "$RUN_ROOT" ] || die "run does not exist: $2"
 
+trap 'rm -f "$RUN_ROOT/.snap-head.tmp" "$RUN_ROOT/.snap-status.tmp"' EXIT
+
 record() {
-  (cd "$GR_ROOT" && git rev-parse HEAD) > "$RUN_ROOT/source-head$1.txt"
-  (cd "$GR_ROOT" && git status --porcelain=v2) > "$RUN_ROOT/source-status$1.txt"
+  (cd "$GR_ROOT" && git rev-parse HEAD) > "$RUN_ROOT/.snap-head.tmp"
+  (cd "$GR_ROOT" && git status --porcelain=v2) > "$RUN_ROOT/.snap-status.tmp"
+  mv "$RUN_ROOT/.snap-head.tmp" "$RUN_ROOT/source-head$1.txt"
+  mv "$RUN_ROOT/.snap-status.tmp" "$RUN_ROOT/source-status$1.txt"
 }
 
 case "$MODE" in
