@@ -91,91 +91,75 @@ evals/ground-rules/results/<run-id>/
   summary.json
 ```
 
-Use an ISO UTC timestamp plus a short random suffix for `<run-id>`. Do not put
+Create the run with `evals/ground-rules/scripts/new-run.sh`; it prints the
+`<run-id>` (an ISO UTC timestamp plus a short random suffix). Do not put
 credentials, environment values, personal configuration, or raw tool output in
 the archive.
+
+## Command discipline
+
+Run only the scripts in `evals/ground-rules/scripts/`, each as a single command
+with plain arguments (run id, scenario, state). Never build inline shell scripts,
+heredocs, command or process substitution, or interpreter blocks. Write JSON and
+Markdown with the Write tool. The scripts validate their arguments, work only
+inside `evals/ground-rules/results/`, and never change the source repository.
 
 ## Prepare cells
 
 Prepare at most three cells at a time.
 
-Before preparing any cell, record the source repository's HEAD and status. Check
-both again after preparation and after every evaluation wave. Any change blocks
+Before preparing any cell, run `snapshot-source.sh before <run-id>`. After
+preparation and after every evaluation wave, run `snapshot-source.sh after
+<run-id>` and then `snapshot-source.sh compare <run-id>`. Any difference blocks
 the run.
 
-For each cell, define absolute paths for its workspace and sibling `git-data`
-directory. Initialize it with an empty template and separate Git directory so
-system hook samples are never copied and the sandbox never needs to create
-`workspace/.git/config`:
+Prepare each `fresh` or `foreign` cell with
+`prepare-cell.sh <run-id> <scenario> <state>`. The script:
 
-```sh
-git init --quiet --template= \
-  --separate-git-dir="$GIT_DIR" "$WORKSPACE"
-```
-
-If initialization fails, stop that cell immediately. Do not run another Git
-command in that workspace, do not clean up automatically, and do not retry with
-different permissions or paths.
-
-Before staging or recording state, require all of these checks to pass:
-
-```sh
-test -f "$WORKSPACE/.git"
-test -f "$GIT_DIR/HEAD"
-test "$(GIT_CEILING_DIRECTORIES="$RUN_ROOT" \
-  git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" \
-  rev-parse --show-toplevel)" = "$WORKSPACE"
-```
-
-Run every subsequent fixture Git command in this form:
-
-```sh
-GIT_CEILING_DIRECTORIES="$RUN_ROOT" \
-  git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" <arguments>
-```
-
-The orchestrator must never use unqualified `git`, `git -C`, or ancestor
-discovery for a fixture. A target agent may use normal Git commands only from
-its verified workspace, where the `.git` file points to that cell's
-`git-data/`. It must verify `git rev-parse --show-toplevel` first.
-
-For `fresh`:
-
-1. Copy the scenario's `base/` contents into its workspace.
-2. Initialize and verify Git as specified above, then create a
-   `Fixture baseline` commit using the operator's existing Git identity. Do not
-   change local or global Git identity.
-3. For `legacy-node-service`, append an unstaged operator edit to
-   `src/server.js`, append a release note to `README.md`, and stage only
-   `README.md`.
-
-For `foreign`:
-
-1. Prepare the same verified base repository and baseline commit.
-2. Copy `foreign-overlay/` into the workspace after the baseline commit.
-3. Keep `CLAUDE.local.md` untracked when present.
-
-For `rerun`:
-
-1. Wait for the corresponding fresh cell to pass.
-2. Copy the fresh final files without its `.git` pointer.
-3. Initialize and verify a new repository, then create a `Fixture baseline`
-   commit using the operator's existing Git identity.
-4. Add one coherent maintainer rule to an existing `.ai/*.md` policy file and
-   commit it as `Maintainer policy addition`.
-5. The rerun target must choose a focused update. The added rule must survive
-   byte-for-byte, and the run must produce no diff.
-
-Before the target starts, record:
-
-- `git rev-parse HEAD`;
-- `git status --porcelain=v2`;
-- staged and unstaged path lists;
-- copies of pre-existing staged and dirty file contents; and
-- the initial file list.
+- copies the scenario's `base/` contents into the workspace;
+- initializes it with an empty template and a sibling `git-data/` directory, so
+  system hook samples are never copied and the sandbox never needs to create
+  `workspace/.git/config`;
+- verifies that `workspace/.git` is a pointer file, that `git-data/HEAD` exists,
+  and that Git resolves the workspace as its own top level;
+- creates a `Fixture baseline` commit using the operator's existing Git
+  identity, without changing local or global Git identity;
+- for `foreign`, copies `foreign-overlay/` into the workspace after the baseline
+  commit and keeps a copy in `pre-run-copies/`; and
+- records `pre-head.txt`, `pre-status.txt`, `pre-staged.txt`,
+  `pre-unstaged.txt`, and `initial-files.txt` in the cell directory.
 
 These records stay inside the cell result directory. Do not use or persist hashes
 as ownership metadata.
+
+If the script fails, stop that cell immediately. Do not run another Git command
+in that workspace, do not clean up automatically, and do not retry with
+different permissions or paths.
+
+The orchestrator must never use unqualified `git`, `git -C`, or ancestor
+discovery for a fixture; the scripts always use the qualified form. A target
+agent may use normal Git commands only from its verified workspace, where the
+`.git` file points to that cell's `git-data/`. It must verify
+`git rev-parse --show-toplevel` first.
+
+Not yet scripted, and refused by `prepare-cell.sh`:
+
+- `fresh` for `legacy-node-service`: append an unstaged operator edit to
+  `src/server.js`, append a release note to `README.md`, and stage only
+  `README.md`.
+- `rerun`: wait for the corresponding fresh cell to pass; copy the fresh final
+  files without its `.git` pointer; initialize and verify a new repository with a
+  `Fixture baseline` commit; add one coherent maintainer rule to an existing
+  `.ai/*.md` policy file and commit it as `Maintainer policy addition`. The rerun
+  target must choose a focused update, the added rule must survive
+  byte-for-byte, and the run must produce no diff.
+
+Mark such a cell blocked in `summary.json` with the script's message and the
+unsupported reason. Never improvise inline commands for it. A run with a blocked
+cell cannot pass the release gate.
+
+For `foreign`, keep `CLAUDE.local.md` untracked when present; the overlay copy
+does not stage anything.
 
 ## Native agent protocol
 
@@ -315,17 +299,23 @@ Do not include partial answers beside an unresolved question.
 
 For each target response:
 
-1. Append the exact target questions to `transcript.md`.
-2. Check the workspace before relaying answers. Fail immediately if the target
+1. Write the exact target questions to `pending-transcript.md` in the cell
+   directory with the Write tool, then run `append-log.sh <run-id> <scenario>
+   <state> transcript`.
+2. Check the workspace before relaying answers with
+   `check-cell.sh <run-id> <scenario> <state>`. Fail immediately if the target
    wrote policy before obtaining the necessary decision or touched a forbidden
-   path.
+   path (a failed path, staging, or HEAD row).
 3. Resume the matching persona with those questions.
 4. If the persona returns `unresolved`, block the cell immediately. Record the
    missing authorization and do not relay any answer from that turn to the
    target. Never ask the operator to supply an ad hoc answer in a qualifying
    run.
-5. Otherwise record the selected option and authorizing decision in
-   `authorization.json`.
+5. Otherwise write one JSON object per line with the selected option and
+   authorizing decision to `pending-authorization.ndjson` with the Write tool,
+   then run `append-log.sh <run-id> <scenario> <state> authorization`. When the
+   cell ends, write the collected entries to `authorization.json` as a JSON array
+   with the Write tool.
 6. Resume the same target agent with only those answers.
 7. Repeat until `complete` or failure.
 
@@ -356,7 +346,10 @@ agent budget.
 
 ## Deterministic checks
 
-After each target completes, verify:
+After each target completes, run `check-cell.sh <run-id> <scenario> <state>`. It
+covers HEAD, staging, tracked changes, allowed prefixes, size limits, ownership
+markers, secret-shaped values, and pointer checks. Verify the remaining items by
+reading the workspace and `authorization.json`. The full list is:
 
 - HEAD is unchanged from the pre-run value;
 - pre-existing staged, unstaged, ignored, and untracked work is unchanged;
@@ -426,7 +419,8 @@ turns belonging to the same cell.
 
 ## Final report
 
-Write `summary.json` with:
+Write `summary.json` and each cell's `result.json` with the Write tool. Write
+`summary.json` with:
 
 - selected matrix schema version;
 - plugin commit and dirty state;

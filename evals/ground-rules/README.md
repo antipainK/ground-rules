@@ -30,6 +30,40 @@ The skill asks for the run scope before it starts. By default it evaluates all
 18 cells. Scenario or state filters are suitable for development, but a filtered
 run cannot pass the release gate.
 
+## Scripts and permissions
+
+The orchestrator runs fixed scripts from `evals/ground-rules/scripts/` instead of
+building long shell commands inline. Each takes plain arguments (run id, scenario,
+state), validates them, and works only inside `evals/ground-rules/results/`.
+
+| Script | Purpose |
+|---|---|
+| `new-run.sh` | Creates a run folder and prints its id; refuses if `results/` is not ignored by Git |
+| `prepare-cell.sh` | Builds one `fresh` or `foreign` cell: baseline commit, separate Git directory, pre-run records |
+| `snapshot-source.sh` | Records and compares the source repository's HEAD and status (`before`, `after`, `compare`) |
+| `check-cell.sh` | Runs the deterministic checks and prints one table; exits nonzero on any failure |
+| `append-log.sh` | Appends a pending file written with the Write tool to `transcript.md` or `authorization.ndjson` |
+| `test-scripts.sh` | Tests for the scripts and for the settings below (`scripts`, `config` or `all`) |
+
+The `rerun` state and scenarios with scripted pre-run edits (`legacy-node-service`
+fresh) are not supported by `prepare-cell.sh` yet.
+
+The shared `.claude/settings.json` publishes three entries so a clone needs no
+setup:
+
+- `permissions.allow`: `Bash(evals/ground-rules/scripts/*)`. If a script call still
+  prompts in your session, use the absolute path in the rule.
+- `permissions.ask`: `Edit(/evals/ground-rules/scripts/**)`, so changing a script
+  always asks.
+- `sandbox.filesystem.denyWrite`: the scripts folder, so Bash cannot rewrite the
+  scripts when the sandbox is on. Without the sandbox only the `ask` rule applies.
+
+The allow rule matches any arguments, so the scripts do the validation. Managed
+settings always take precedence over these entries.
+
+Run `evals/ground-rules/scripts/test-scripts.sh` after changing a script or the
+settings.
+
 ## Parallelism
 
 The harness runs dependency-aware waves:
