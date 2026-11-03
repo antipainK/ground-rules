@@ -47,6 +47,7 @@ copy_tree() {
     local detail
     detail=$(head -3 "$err" | tr '\n' ' ')
     rm -rf "$CELL"
+    rmdir "$RUN_ROOT/$SCENARIO" 2> /dev/null || true
     die "could not copy $1 (a file may be blocked by the sandbox, for example .env files): $detail"
   fi
   rm -f "$err"
@@ -55,6 +56,7 @@ copy_tree() {
 # Removes the cell and stops. Used only for failures that happen before any agent touched it.
 fail_clean() {
   rm -rf "$CELL"
+  rmdir "$RUN_ROOT/$SCENARIO" 2> /dev/null || true
   die "$@"
 }
 
