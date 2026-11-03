@@ -336,13 +336,22 @@ For each target response:
    then run `append-log.sh <run-id> <scenario> <state> authorization`. When the
    cell ends, write the collected entries to `authorization.json` as a JSON array
    with the Write tool.
-6. Resume the same target agent with only those answers.
+6. Resume the same target agent with only `questionIndex`, `selectedOptions` and
+   `freeText` from each accepted answer. Never relay `authorizedBy` or the
+   persona response envelope. Relay `freeText` exactly as returned, including
+   when it restates an authorized fact. Add no note, correction, explanation,
+   formatting instruction, inferred answer, or other text. If an answer appears
+   malformed, reject and re-ask the persona instead of repairing it in the
+   relay.
 7. Repeat until `complete` or failure.
 
 Questions from separate cells may be relayed in parallel. Preserve ordering
 within each cell. Discard and re-ask any persona response that volunteers a
 future decision or adds a fact not present in its authorizing decision; record
 the rejected response as a harness finding, never as authorization.
+Allow at most two persona re-asks for one target turn. If the second re-ask is
+also rejected or malformed, block the cell and record the repeated protocol
+failure.
 
 ### Ground Rules review loop
 

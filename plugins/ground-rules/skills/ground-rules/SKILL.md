@@ -169,6 +169,11 @@ When `docs/` exists or Step 2 will create it, first inspect whether the repo alr
 - **Pointers only**: list existing docs with concrete read triggers, but add no naming, dating, review-date or immutability policy.
 - **Custom policy**: the user states which of those rules apply and any different naming or lifecycle.
 
+During a focused update, an otherwise mechanically compliant document with
+neither a date-like token nor `Last reviewed` remains an unclassified legacy
+document. Report its classification as not configured, but do not ask to
+classify it unless the user requests that work or chooses a full re-audit.
+
 Record each accepted Docs statement as an explicit-answer rule with destination `AGENTS.md`; pass those records to Step 9. Applying the Step 2 sketch authorizes creating that snapshot, not any general docs-governance policy. A focused update does not revisit a coherent Docs section or treat its absence as missing policy.
 
 Only when `docs/` names break the current, explicitly kept or selected convention:
@@ -176,6 +181,7 @@ Only when `docs/` names break the current, explicitly kept or selected conventio
 1. Show a table: current name, proposed name and document type. Allowed path changes are lowercase, separators, ISO dates, dropping copy suffixes like ` (1)`, and lowercase extensions (`.MD` -> `.md`). Names that already comply are not listed. Renaming a snapshot does not change its body.
 2. Build the complete final-path map before asking. Detect collisions case-insensitively, including existing destinations, copy-suffix collapse, case-only renames and cycles. A colliding proposal has no Apply option until the user chooses a unique name or skips it.
 3. Ask one question per file, in a single round: with more than 4 files, send consecutive question calls (4 per call) with no other message in between. The label says what differs ("Living doc", "Snapshot, 12 March", "Keep current name"); the description starts with the complete final name (`→ meeting-notes_2026-03-12.md`). Build date options from what the file and its name say (`12.03` -> both readings; "January 2026" -> `2026-01-01`, approximate). Offer the file's first-commit date only when files in `docs/` have different first-commit dates; otherwise that date says nothing about when the doc was written.
+   When only letter case, separators or the extension need normalization and the document type remains unknown, also offer **Normalize filename only**. Derive its destination directly from the current name by lowercasing letters, replacing each run of spaces, underscores or hyphens in the basename with one hyphen, trimming hyphens from both ends of the basename, and lowercasing the extension; make no other change. Its description starts with that complete final name and says the body, type and date metadata stay unchanged. If selected, rename the file mechanically, list its type as **Unclassified (name only)**, and report the unresolved classification at the end. Do not offer this choice when the current name contains a date-like token or copy suffix, when the normalized destination collides under Step 2, or when the rename would require adding a date or making another type-dependent change.
 4. When a snapshot date is unknown, present real choices instead of assigning today:
    - **Keep current name (Recommended)**: preserves the unknown date and body.
    - **Use naming date**: uses today's date and adds `Date approximate (original date unknown; named on <today>).`

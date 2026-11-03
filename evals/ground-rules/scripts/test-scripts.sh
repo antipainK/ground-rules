@@ -123,10 +123,15 @@ run_scripts_group() {
   if [ -n "$TMP_REPO" ] && [ -d "$TMP_REPO" ]; then
     mkdir -p "$TMP_REPO/evals/ground-rules/scripts"
     cp "$SCRIPTS/common.sh" "$SCRIPTS/new-run.sh" "$TMP_REPO/evals/ground-rules/scripts/"
-    git init -q "$TMP_REPO" 2> /dev/null
-    expect_fail T6a "not ignored" "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
-    echo 'evals/ground-rules/results/' > "$TMP_REPO/.gitignore"
-    expect_ok T6b "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
+    run git init -q --template= --separate-git-dir="$TMP_REPO/git-data" "$TMP_REPO"
+    if [ "$RC" -ne 0 ]; then
+      fail T6-setup "git init failed: $OUT"
+    else
+      pass T6-setup
+      expect_fail T6a "not ignored" "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
+      echo 'evals/ground-rules/results/' > "$TMP_REPO/.gitignore"
+      expect_ok T6b "$TMP_REPO/evals/ground-rules/scripts/new-run.sh"
+    fi
     rm -rf "$TMP_REPO"
   else
     fail T6 "could not create a temporary directory"
@@ -414,9 +419,14 @@ sys.exit(1 if problems else 0)' "$EVAL_DIR/matrix.json"
       printf 'blocked\n' > "$TMP_REPO/evals/ground-rules/fixtures/x/base/blocked.txt"
       chmod 000 "$TMP_REPO/evals/ground-rules/fixtures/x/base/blocked.txt"
       echo 'evals/ground-rules/results/' > "$TMP_REPO/.gitignore"
-      git init -q "$TMP_REPO" 2> /dev/null
-      "$TMP_REPO/evals/ground-rules/scripts/new-run.sh" "$TEST_RUN2" > /dev/null 2>&1
-      expect_fail T69 "could not copy" "$TMP_REPO/evals/ground-rules/scripts/prepare-cell.sh" "$TEST_RUN2" x fresh
+      run git init -q --template= --separate-git-dir="$TMP_REPO/git-data" "$TMP_REPO"
+      if [ "$RC" -ne 0 ]; then
+        fail T69-setup "git init failed: $OUT"
+      else
+        pass T69-setup
+        expect_ok T69-run "$TMP_REPO/evals/ground-rules/scripts/new-run.sh" "$TEST_RUN2"
+        expect_fail T69 "could not copy" "$TMP_REPO/evals/ground-rules/scripts/prepare-cell.sh" "$TEST_RUN2" x fresh
+      fi
       if [ ! -e "$TMP_REPO/evals/ground-rules/results/$TEST_RUN2/x" ]; then pass T69-clean; else fail T69-clean "a half-built cell was left behind"; fi
       rm -rf "$TMP_REPO"
     else
@@ -539,6 +549,7 @@ sys.exit(1 if problems else 0)' "$EVAL_DIR/matrix.json"
 run_config_group() {
   SETTINGS="$GR_ROOT/.claude/settings.json"
   SKILL="$GR_ROOT/.claude/skills/ground-rules-eval/SKILL.md"
+  PLUGIN_SKILL="$GR_ROOT/plugins/ground-rules/skills/ground-rules/SKILL.md"
   README="$EVAL_DIR/README.md"
 
   # T26 settings parse
@@ -635,6 +646,41 @@ sys.exit(0 if ok else 1)' "$SETTINGS"
 
   # T86 the README documents the matrix field
   if grep -Fq 'rerunMaintainerRule' "$README" && grep -Fq 'legacy-node-service' "$README"; then pass T86; else fail T86 "README does not document rerunMaintainerRule and the legacy state"; fi
+
+  # T87 rerun and terminal interview choices are explicitly authorized
+  run python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1]))["commonDecisions"]
+rerun = any("rerun state" in x and "label starts with `Focused update`" in x for x in d)
+terminal = any("more rules for a file" in x and "additional rule for that file" in x and "label starts with `No more rules`" in x for x in d)
+problems = ([] if rerun else ["rerun choice"]) + ([] if terminal else ["file open-round choice"])
+print("missing: " + ", ".join(problems) if problems else "ok")
+sys.exit(1 if problems else 0)' "$EVAL_DIR/matrix.json"
+  if [ "$RC" -eq 0 ]; then pass T87; else fail T87 "$OUT"; fi
+
+  # T88 the plugin offers a type-neutral mechanical documentation rename
+  if grep -Fq '**Normalize filename only**' "$PLUGIN_SKILL" \
+    && grep -Fq '**Unclassified (name only)**' "$PLUGIN_SKILL" \
+    && grep -Fq 'body, type and date metadata stay unchanged' "$PLUGIN_SKILL" \
+    && grep -Fq 'replacing each run of spaces, underscores or hyphens in the basename with one hyphen' "$PLUGIN_SKILL" \
+    && grep -Fq 'trimming hyphens from both ends of the basename' "$PLUGIN_SKILL" \
+    && grep -Fq 'current name contains a date-like token or copy suffix' "$PLUGIN_SKILL" \
+    && grep -Fq 'normalized destination collides under Step 2' "$PLUGIN_SKILL" \
+    && grep -Fq 'remains an unclassified legacy' "$PLUGIN_SKILL"; then
+    pass T88
+  else
+    fail T88 "the mechanical rename option is incomplete"
+  fi
+
+  # T89 target relays cannot add orchestrator notes or repair persona answers
+  if grep -Fq 'Never relay `authorizedBy`' "$SKILL" \
+    && grep -Fq 'Relay `freeText` exactly as returned' "$SKILL" \
+    && grep -Fq 'Add no note, correction,' "$SKILL" \
+    && grep -Fq 'reject and re-ask the persona instead of repairing' "$SKILL" \
+    && grep -Fq 'Allow at most two persona re-asks for one target turn' "$SKILL"; then
+    pass T89
+  else
+    fail T89 "the relay rule permits rationale leakage, added text, answer repair or unbounded retries"
+  fi
 }
 
 if [ "$GROUP" != "config" ]; then
