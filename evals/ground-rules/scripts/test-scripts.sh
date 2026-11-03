@@ -11,9 +11,10 @@ GROUP="${1:-all}"
 case "$GROUP" in scripts | config | all) ;; *) die "usage: test-scripts.sh [scripts|config|all]" ;; esac
 
 SCRIPTS="$EVAL_DIR/scripts"
-TEST_RUN="20000101T000000Z-0e5700"
-TEST_RUN2="20000101T000000Z-0e5701"
-TEST_RUN3="20000101T000000Z-0e5702"
+TEST_SEED=$(( $$ % 16777213 ))
+TEST_RUN="20000101T000000Z-$(printf '%06x' "$TEST_SEED")"
+TEST_RUN2="20000101T000000Z-$(printf '%06x' "$(( (TEST_SEED + 1) % 16777213 ))")"
+TEST_RUN3="20000101T000000Z-$(printf '%06x' "$(( (TEST_SEED + 2) % 16777213 ))")"
 GENERATED=""
 TMP_REPO=""
 PASSED=0
@@ -616,7 +617,8 @@ sys.exit(1 if problems else 0)' "$SETTINGS"
 
   # T31 safety boundary unchanged (compared through a temporary file, so results/ need not exist)
   BOUNDARY_NOW=$(mktemp "${TMPDIR:-/tmp}/ground-rules-boundary.XXXXXX")
-  sed -n '/^## Safety boundary$/,/^## Inputs$/{/^## Inputs$/!p;}' "$SKILL" > "$BOUNDARY_NOW"
+  sed -n '/^## Safety boundary$/,/^## Inputs$/{/^## Inputs$/!p;}' "$SKILL" \
+    | sed '${/^$/d;}' > "$BOUNDARY_NOW"
   if cmp -s "$BOUNDARY_NOW" "$SCRIPTS/testdata/skill-boundary.txt"; then pass T31; else fail T31 "boundary section differs from testdata/skill-boundary.txt"; fi
   rm -f "$BOUNDARY_NOW"
 
