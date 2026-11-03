@@ -165,7 +165,7 @@ Don't delete anything yet. AI instruction files that would block `AGENTS.md` (se
 
 When `docs/` exists or Step 2 will create it, first inspect whether the repo already states a docs-governance policy. Never infer one from filenames. During bootstrap, migration or full re-audit, ask when no current policy exists. During a focused update, preserve the presence or absence of a Docs section and ask only about a defect or requested change:
 
-- **Snapshot + living docs (Recommended)**: show the exact proposed `AGENTS.md` Docs section: docs live in `docs/`; snapshots use `topic_YYYY-MM-DD.md`, are treated as possibly outdated and are immutable except for ticking a to-do checkbox; living docs have no date and carry a bumped `Last reviewed`; the relevant-doc pointer is checked before planning or changing its area. Say this is the skill's maintainability recommendation, not an external standard.
+- **Snapshot + living docs (Recommended)**: show the exact proposed `AGENTS.md` Docs section: docs live in `docs/`; snapshots use `topic_YYYY-MM-DD.md`, are treated as possibly outdated and are immutable except for ticking a to-do checkbox; living docs have no date and carry a bumped `Last reviewed`; the relevant-doc pointer is checked before planning or changing its area; when Step 2 created a sketch, the proposed pointer names its exact path and labels it a possibly outdated snapshot, so Step 7 can write it. Say this is the skill's maintainability recommendation, not an external standard.
 - **Pointers only**: list existing docs with concrete read triggers, but add no naming, dating, review-date or immutability policy.
 - **Custom policy**: the user states which of those rules apply and any different naming or lifecycle.
 
