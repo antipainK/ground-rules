@@ -113,10 +113,10 @@ preparation and after every evaluation wave, run `snapshot-source.sh after
 <run-id>` and then `snapshot-source.sh compare <run-id>`. Any difference blocks
 the run.
 
-Prepare each `fresh` or `foreign` cell with
-`prepare-cell.sh <run-id> <scenario> <state>`. The script:
+Prepare each cell with `prepare-cell.sh <run-id> <scenario> <state>`. The script:
 
-- copies the scenario's `base/` contents into the workspace;
+- for `fresh` and `foreign`, copies the scenario's `base/` contents into the
+  workspace;
 - initializes it with an empty template and a sibling `git-data/` directory, so
   system hook samples are never copied and the sandbox never needs to create
   `workspace/.git/config`;
@@ -125,9 +125,19 @@ Prepare each `fresh` or `foreign` cell with
 - creates a `Fixture baseline` commit using the operator's existing Git
   identity, without changing local or global Git identity;
 - for `foreign`, copies `foreign-overlay/` into the workspace after the baseline
-  commit and keeps a copy in `pre-run-copies/`; and
+  commit and keeps a copy in `pre-run-copies/`;
+- for `legacy-node-service` fresh, appends an unstaged operator edit to
+  `src/server.js` and a release note to `README.md`, stages only `README.md`, and
+  keeps copies of both files in `pre-run-copies/`;
+- for `rerun`, requires the fresh cell's `result.json` to contain
+  `"verdict": "pass"`, copies the fresh final files (without its `.git` pointer)
+  into a new repository with a `Fixture baseline` commit, appends the scenario's
+  `rerunMaintainerRule` from `matrix.json` to the single `.ai` file that matches
+  its topics, verifies that only that file changed by exactly one line, and
+  commits it as `Maintainer policy addition`; and
 - records `pre-head.txt`, `pre-status.txt`, `pre-staged.txt`,
-  `pre-unstaged.txt`, and `initial-files.txt` in the cell directory.
+  `pre-unstaged.txt`, and `initial-files.txt` in the cell directory (and
+  `maintainer-rule.txt` for a rerun).
 
 These records stay inside the cell result directory. Do not use or persist hashes
 as ownership metadata.
@@ -142,21 +152,19 @@ agent may use normal Git commands only from its verified workspace, where the
 `.git` file points to that cell's `git-data/`. It must verify
 `git rev-parse --show-toplevel` first.
 
-Not yet scripted, and refused by `prepare-cell.sh`:
+The rerun target must choose a focused update, the added rule must survive
+byte-for-byte, and the run must produce no diff; `check-cell.sh` checks the last
+two for a `rerun` cell. Write each cell's `result.json` with a `verdict` field
+(`pass` or `fail`), because a rerun cell is only prepared after its fresh cell
+passed.
 
-- `fresh` for `legacy-node-service`: append an unstaged operator edit to
-  `src/server.js`, append a release note to `README.md`, and stage only
-  `README.md`.
-- `rerun`: wait for the corresponding fresh cell to pass; copy the fresh final
-  files without its `.git` pointer; initialize and verify a new repository with a
-  `Fixture baseline` commit; add one coherent maintainer rule to an existing
-  `.ai/*.md` policy file and commit it as `Maintainer policy addition`. The rerun
-  target must choose a focused update, the added rule must survive
-  byte-for-byte, and the run must produce no diff.
-
-Mark such a cell blocked in `summary.json` with the script's message and the
-unsupported reason. Never improvise inline commands for it. A run with a blocked
-cell cannot pass the release gate.
+`prepare-cell.sh` refuses with a one-line reason, and leaves no cell behind, when
+the fresh cell has not passed, the scenario has no usable `rerunMaintainerRule`,
+no `.ai` file or more than one matches its topics, the rule line is already
+present, or a fixture file cannot be copied (for example a `.env.example` that the
+sandbox blocks). Mark such a cell blocked in `summary.json` with the script's
+message. Never improvise inline commands for it. A run with a blocked cell cannot
+pass the release gate.
 
 For `foreign`, keep `CLAUDE.local.md` untracked when present; the overlay copy
 does not stage anything.

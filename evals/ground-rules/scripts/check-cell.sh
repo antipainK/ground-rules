@@ -8,6 +8,7 @@
 [ $# -eq 3 ] || die "usage: check-cell.sh <run-id> <scenario> <state>"
 cell_paths "$1" "$2" "$3"
 SCENARIO="$2"
+STATE="$3"
 [ -d "$WORKSPACE" ] || die "no workspace: $WORKSPACE"
 [ -f "$CELL/pre-head.txt" ] || die "no pre-run records; was the cell prepared with prepare-cell.sh?"
 
@@ -38,20 +39,22 @@ else
   row "HEAD unchanged" FAIL "now $NOW_HEAD"
 fi
 
-# 2. nothing staged
-STAGED=$(fgit diff --cached --name-only)
-if [ -z "$STAGED" ]; then
-  row "nothing staged" PASS "-"
+# 2. nothing staged beyond what was staged before the run (recorded in pre-staged.txt)
+STAGED=$(fgit diff --cached --name-only | sort)
+RECORDED_STAGED=$(sort "$CELL/pre-staged.txt")
+if [ "$STAGED" = "$RECORDED_STAGED" ]; then
+  row "nothing staged" PASS "$([ -z "$STAGED" ] && echo "-" || echo "as recorded: $(echo "$STAGED" | joined)")"
 else
-  row "nothing staged" FAIL "$(echo "$STAGED" | joined)"
+  row "nothing staged" FAIL "now: $(echo "$STAGED" | joined); recorded: $(echo "$RECORDED_STAGED" | joined)"
 fi
 
-# 3. no tracked file modified
-TRACKED=$(fgit diff --name-only)
-if [ -z "$TRACKED" ]; then
-  row "no tracked file modified" PASS "-"
+# 3. no tracked file modified beyond what was already modified before the run (pre-unstaged.txt)
+TRACKED=$(fgit diff --name-only | sort)
+RECORDED_TRACKED=$(sort "$CELL/pre-unstaged.txt")
+if [ "$TRACKED" = "$RECORDED_TRACKED" ]; then
+  row "no tracked file modified" PASS "$([ -z "$TRACKED" ] && echo "-" || echo "as recorded: $(echo "$TRACKED" | joined)")"
 else
-  row "no tracked file modified" FAIL "$(echo "$TRACKED" | joined)"
+  row "no tracked file modified" FAIL "now: $(echo "$TRACKED" | joined); recorded: $(echo "$RECORDED_TRACKED" | joined)"
 fi
 
 # 4. every changed path is inside the matrix allowedChangePrefixes
@@ -89,6 +92,22 @@ else
     row "changed paths inside allowed prefixes" PASS "$(wc -l < "$TMP/changed.txt" | tr -d ' ') changed"
   else
     row "changed paths inside allowed prefixes" FAIL "outside:$OUTSIDE"
+  fi
+fi
+
+# 4b. rerun cells: no diff at all, and the maintainer rule survives byte for byte
+if [ "$STATE" = "rerun" ]; then
+  if [ -s "$TMP/changed.txt" ]; then
+    row "rerun produced no diff" FAIL "$(joined < "$TMP/changed.txt")"
+  else
+    row "rerun produced no diff" PASS "-"
+  fi
+  RULE_PATH=$(sed -n 1p "$CELL/maintainer-rule.txt" 2> /dev/null)
+  RULE_LINE=$(sed -n 2p "$CELL/maintainer-rule.txt" 2> /dev/null)
+  if [ -n "$RULE_PATH" ] && [ -n "$RULE_LINE" ] && grep -Fxq -e "$RULE_LINE" "$WORKSPACE/$RULE_PATH" 2> /dev/null; then
+    row "maintainer rule preserved" PASS "$RULE_PATH"
+  else
+    row "maintainer rule preserved" FAIL "recorded rule line not found in ${RULE_PATH:-an unrecorded file}"
   fi
 fi
 

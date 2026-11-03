@@ -41,6 +41,10 @@
   "scenarios": [
     {
       "id": "empty-python-cli",
+      "rerunMaintainerRule": {
+        "topics": ["testing", "tests"],
+        "text": "- Tests that create files remove them when they finish. Project decision"
+      },
       "persona": "Novice maintainer building a Python URL-checker CLI that emits JSON.",
       "foreignRunChoice": "Migrate interactively",
       "stateFacts": {
@@ -84,6 +88,10 @@
     },
     {
       "id": "legacy-node-service",
+      "rerunMaintainerRule": {
+        "topics": ["code-style", "style", "conventions"],
+        "text": "- Name test files after the module they cover, for example `server.test.js`. Project decision"
+      },
       "persona": "Long-term maintainer modernizing an npm Express/CommonJS service without rewriting application code.",
       "foreignRunChoice": "Migrate interactively",
       "allowedChangePrefixes": [
@@ -118,6 +126,10 @@
     },
     {
       "id": "polyglot-monorepo",
+      "rerunMaintainerRule": {
+        "topics": ["architecture"],
+        "text": "- A package imports another package only through its public entry point, never its internal files. Project decision"
+      },
       "persona": "Platform lead maintaining a pnpm TypeScript frontend/API, Go worker, and Python data tool.",
       "foreignRunChoice": "Full re-audit",
       "allowedChangePrefixes": [
@@ -153,6 +165,10 @@
     },
     {
       "id": "enforcement-heavy-python-api",
+      "rerunMaintainerRule": {
+        "topics": ["code-style", "style", "conventions"],
+        "text": "- Keep route handlers thin: put business logic in service functions that tests call directly. Project decision"
+      },
       "persona": "Reliability-focused FastAPI maintainer using uv, Ruff, and partially configured mypy.",
       "foreignRunChoice": "Full re-audit",
       "allowedChangePrefixes": [
@@ -188,6 +204,10 @@
     },
     {
       "id": "documentation-heavy-rust-workspace",
+      "rerunMaintainerRule": {
+        "topics": ["code-style", "style", "conventions"],
+        "text": "- Keep each module file under 400 lines; split larger modules into submodules. Project decision"
+      },
       "persona": "Documentation curator maintaining a Cargo workspace with living docs, snapshots, and todo files.",
       "foreignRunChoice": "Migrate interactively",
       "allowedChangePrefixes": [
@@ -227,6 +247,10 @@
     },
     {
       "id": "security-sensitive-java-service",
+      "rerunMaintainerRule": {
+        "topics": ["security"],
+        "text": "- Log statements never include request bodies, tokens or personal data. Project decision"
+      },
       "persona": "Security-conscious Spring maintainer using Maven, Checkstyle, SpotBugs, integration tests, and shared Claude settings.",
       "foreignRunChoice": "Migrate interactively",
       "allowedChangePrefixes": [

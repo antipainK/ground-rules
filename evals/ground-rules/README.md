@@ -46,8 +46,14 @@ state), validates them, and works only inside `evals/ground-rules/results/`.
 | `prepare-blind-input.sh` | Builds the `blind-input/` folder (rubric, hard failures, changed paths) for the final blind evaluators |
 | `test-scripts.sh` | Tests for the scripts and for the settings below (`scripts`, `config` or `all`) |
 
-The `rerun` state and scenarios with scripted pre-run edits (`legacy-node-service`
-fresh) are not supported by `prepare-cell.sh` yet.
+`prepare-cell.sh` builds all three states. `legacy-node-service` fresh also gets
+an unstaged edit to `src/server.js` and a staged release note in `README.md`. A
+`rerun` cell needs its fresh cell's `result.json` to contain `"verdict": "pass"`.
+It appends the scenario's `rerunMaintainerRule` (exact `text` plus the accepted
+`topics`, never a file name) from `matrix.json` to the one `.ai` file that matches
+a topic by file name or first heading, and refuses when none or several match.
+The Java scenario's `.env.example` is blocked by the sandbox's `.env` read
+protection; `prepare-cell.sh` then stops with a message naming the file.
 
 The shared `.claude/settings.json` publishes three entries so a clone needs no
 setup:
