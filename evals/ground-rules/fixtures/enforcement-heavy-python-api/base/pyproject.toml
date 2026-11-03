@@ -1,0 +1,14 @@
+[project]
+name = "reliable-api"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi"]
+
+[dependency-groups]
+dev = ["ruff", "mypy", "pytest"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+warn_unused_ignores = true
