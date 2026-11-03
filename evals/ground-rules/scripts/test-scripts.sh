@@ -12,6 +12,8 @@ case "$GROUP" in scripts | config | all) ;; *) die "usage: test-scripts.sh [scri
 
 SCRIPTS="$EVAL_DIR/scripts"
 TEST_RUN="20000101T000000Z-0e5700"
+TEST_RUN2="20000101T000000Z-0e5701"
+TEST_RUN3="20000101T000000Z-0e5702"
 GENERATED=""
 TMP_REPO=""
 PASSED=0
@@ -40,6 +42,31 @@ expect_fail() {
 check_cell_for() { run "$SCRIPTS/check-cell.sh" "$TEST_RUN" empty-python-cli "$1"; }
 check_cell() { check_cell_for fresh; }
 
+# Helpers for the state tests, which use TEST_RUN2 and TEST_RUN3.
+check2() { run "$SCRIPTS/check-cell.sh" "$TEST_RUN2" "$1" "$2"; }
+
+expect2_pass() {
+  check2 "$2" "$3"
+  if [ "$RC" -eq 0 ]; then pass "$1"; else fail "$1" "$OUT"; fi
+}
+
+expect2_fail() {
+  ID="$1"; NEEDLE="$4"
+  check2 "$2" "$3"
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "$NEEDLE" | grep -Fq "FAIL"; then pass "$ID"; else fail "$ID" "wanted FAIL row '$NEEDLE': $OUT"; fi
+}
+
+no_cell() {
+  if [ ! -e "$RESULTS/$TEST_RUN2/$2/$3" ]; then pass "$1"; else fail "$1" "a cell was left behind: $2/$3"; fi
+}
+
+# Prints the rerun rule text, or the first topic, for a scenario from matrix.json.
+matrix_rule() {
+  python3 -I -c 'import json,sys
+r = [x for x in json.load(open(sys.argv[1]))["scenarios"] if x["id"] == sys.argv[2]][0]["rerunMaintainerRule"]
+print(r["text"] if sys.argv[3] == "text" else r["topics"][0])' "$EVAL_DIR/matrix.json" "$1" "$2"
+}
+
 expect_check_pass() {
   check_cell
   if [ "$RC" -eq 0 ]; then pass "$1"; else fail "$1" "$OUT"; fi
@@ -52,7 +79,7 @@ expect_check_fail() {
 }
 
 cleanup() {
-  rm -rf "${RESULTS:?}/$TEST_RUN"
+  rm -rf "${RESULTS:?}/$TEST_RUN" "${RESULTS:?}/$TEST_RUN2" "${RESULTS:?}/$TEST_RUN3"
   if [ -n "$GENERATED" ]; then rm -rf "${RESULTS:?}/$GENERATED"; fi
   if [ -n "$TMP_REPO" ]; then rm -rf "$TMP_REPO"; fi
 }
@@ -304,8 +331,209 @@ sys.exit(0 if d.get("rubric") and d.get("hardFailures") else 1)' "$CELL/blind-in
   done
   if [ -z "$BAD" ]; then pass T25; else fail T25 "$BAD"; fi
 
-  skip T33 "optional S9 (rerun state) not built"
-  skip T34 "optional S9 (legacy-node-service pre-run edits) not built"
+}
+
+# T33 (rerun state) and T34 (legacy pre-run edits) are covered by T60 to T84.
+run_states_group() {
+  rm -rf "${RESULTS:?}/$TEST_RUN2" "${RESULTS:?}/$TEST_RUN3"
+  expect_ok states-setup "$SCRIPTS/new-run.sh" "$TEST_RUN2"
+
+  # T60 and T61 the matrix carries a usable rule for every scenario
+  run python3 -I -c 'import json,sys
+m = json.load(open(sys.argv[1]))
+ok = m.get("schemaVersion") == 3
+print("ok" if ok else "schemaVersion is " + str(m.get("schemaVersion")))
+sys.exit(0 if ok else 1)' "$EVAL_DIR/matrix.json"
+  if [ "$RC" -eq 0 ]; then pass T60; else fail T60 "$OUT"; fi
+  run python3 -I -c 'import json,re,sys
+m = json.load(open(sys.argv[1]))
+problems = []
+for s in m["scenarios"]:
+    r = s.get("rerunMaintainerRule")
+    if not r:
+        problems.append(s["id"] + ": no rerunMaintainerRule")
+        continue
+    t = r.get("topics")
+    if not t or not all(isinstance(x, str) and re.match(r"^[a-z0-9-]+$", x) for x in t):
+        problems.append(s["id"] + ": bad topics")
+    x = r.get("text", "")
+    if "\n" in x or not x.startswith("- ") or not x.endswith("Project decision"):
+        problems.append(s["id"] + ": bad text")
+print("; ".join(problems) if problems else "ok")
+sys.exit(1 if problems else 0)' "$EVAL_DIR/matrix.json"
+  if [ "$RC" -eq 0 ]; then pass T61; else fail T61 "$OUT"; fi
+
+  # T62 to T68 legacy-node-service fresh: planted edits and what the checks do with them
+  expect_ok T62-run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" legacy-node-service fresh
+  cell_paths "$TEST_RUN2" legacy-node-service fresh
+  if [ "$(cat "$CELL/pre-staged.txt")" = "README.md" ] && [ "$(cat "$CELL/pre-unstaged.txt")" = "src/server.js" ] \
+    && [ "$(tail -n1 "$WORKSPACE/src/server.js")" = "// operator edit: do not commit" ] \
+    && [ "$(tail -n1 "$WORKSPACE/README.md")" = "- Unreleased: operator note." ] \
+    && [ "$(fgit rev-list --count HEAD)" = "1" ] && [ "$(fgit diff --cached --name-only)" = "README.md" ]; then
+    pass T62
+  else
+    fail T62 "planted edits, staging or records are wrong"
+  fi
+  if cmp -s "$CELL/pre-run-copies/README.md" "$WORKSPACE/README.md" && cmp -s "$CELL/pre-run-copies/src/server.js" "$WORKSPACE/src/server.js"; then pass T63; else fail T63 "saved copies differ from the workspace"; fi
+  check2 legacy-node-service fresh
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fq '| 0 changed |'; then pass T64; else fail T64 "$OUT"; fi
+
+  echo "// target edit" >> "$WORKSPACE/src/server.js"
+  expect2_fail T65 legacy-node-service fresh "changed paths inside allowed prefixes"
+  if echo "$OUT" | grep -Fq 'outside: src/server.js'; then pass T65-detail; else fail T65-detail "$OUT"; fi
+  cp "$CELL/pre-run-copies/src/server.js" "$WORKSPACE/src/server.js"
+  expect2_pass T65-undo legacy-node-service fresh
+
+  echo "{}" >> "$WORKSPACE/package.json"
+  fgit add -- package.json
+  expect2_fail T66 legacy-node-service fresh "nothing staged"
+  fgit reset -q -- package.json
+  fgit checkout -q -- package.json
+  expect2_pass T66-undo legacy-node-service fresh
+
+  fgit reset -q -- README.md
+  expect2_fail T67 legacy-node-service fresh "nothing staged"
+  fgit add -- README.md
+  expect2_pass T67-undo legacy-node-service fresh
+
+  echo "- extra" >> "$WORKSPACE/README.md"
+  expect2_fail T68 legacy-node-service fresh "no tracked file modified"
+  if echo "$OUT" | grep -F "changed paths inside allowed prefixes" | grep -Fq FAIL; then pass T68-path; else fail T68-path "$OUT"; fi
+  cp "$CELL/pre-run-copies/README.md" "$WORKSPACE/README.md"
+  expect2_pass T68-undo legacy-node-service fresh
+
+  # T69 a fixture file that cannot be copied stops the script and leaves no cell
+  if [ "$(id -u)" = "0" ]; then
+    skip T69 "running as root: file permissions cannot block a copy"
+  else
+    TMP_REPO=$(mktemp -d "${TMPDIR:-/tmp}/ground-rules-test.XXXXXX")
+    if [ -n "$TMP_REPO" ] && [ -d "$TMP_REPO" ]; then
+      mkdir -p "$TMP_REPO/evals/ground-rules/scripts" "$TMP_REPO/evals/ground-rules/fixtures/x/base"
+      cp "$SCRIPTS/common.sh" "$SCRIPTS/new-run.sh" "$SCRIPTS/prepare-cell.sh" "$TMP_REPO/evals/ground-rules/scripts/"
+      printf 'ok\n' > "$TMP_REPO/evals/ground-rules/fixtures/x/base/ok.txt"
+      printf 'blocked\n' > "$TMP_REPO/evals/ground-rules/fixtures/x/base/blocked.txt"
+      chmod 000 "$TMP_REPO/evals/ground-rules/fixtures/x/base/blocked.txt"
+      echo 'evals/ground-rules/results/' > "$TMP_REPO/.gitignore"
+      git init -q "$TMP_REPO" 2> /dev/null
+      "$TMP_REPO/evals/ground-rules/scripts/new-run.sh" "$TEST_RUN2" > /dev/null 2>&1
+      expect_fail T69 "could not copy" "$TMP_REPO/evals/ground-rules/scripts/prepare-cell.sh" "$TEST_RUN2" x fresh
+      if [ ! -e "$TMP_REPO/evals/ground-rules/results/$TEST_RUN2/x" ]; then pass T69-clean; else fail T69-clean "a half-built cell was left behind"; fi
+      rm -rf "$TMP_REPO"
+    else
+      fail T69 "could not create a temporary directory"
+    fi
+    TMP_REPO=""
+  fi
+
+  # T70 to T82 rerun preparation on empty-python-cli, refusals first
+  expect_ok T70-setup "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli fresh
+  cell_paths "$TEST_RUN2" empty-python-cli fresh
+  FRESH2="$CELL"
+  expect_fail T70 "has not passed" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  no_cell T70-nocell empty-python-cli rerun
+  printf '{"verdict": "fail"}\n' > "$FRESH2/result.json"
+  expect_fail T71 "has not passed" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  no_cell T71-nocell empty-python-cli rerun
+  printf '{"verdict": "pass"}\n' > "$FRESH2/result.json"
+
+  expect_fail T82 "no .ai file matches" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  no_cell T82-nocell empty-python-cli rerun
+
+  mkdir -p "$WORKSPACE/.ai"
+  printf '# Other\n\n- x. Project decision\n' > "$WORKSPACE/.ai/other.md"
+  expect_fail T79 "no .ai file matches" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  if echo "$OUT" | grep -Fq 'other.md'; then pass T79-lists; else fail T79-lists "the message does not list the .ai files found: $OUT"; fi
+  no_cell T79-nocell empty-python-cli rerun
+
+  printf '# Testing\n\n- a. Project decision\n' > "$WORKSPACE/.ai/testing.md"
+  printf '# Tests\n\n- b. Project decision\n' > "$WORKSPACE/.ai/tests.md"
+  expect_fail T78 "ambiguous" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  if echo "$OUT" | grep -Fq 'testing.md' && echo "$OUT" | grep -Fq 'tests.md'; then pass T78-lists; else fail T78-lists "$OUT"; fi
+  no_cell T78-nocell empty-python-cli rerun
+  rm "$WORKSPACE/.ai/tests.md"
+
+  RULE=$(matrix_rule empty-python-cli text)
+  printf '%s\n' "$RULE" >> "$WORKSPACE/.ai/testing.md"
+  expect_fail T80 "already present" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  no_cell T80-nocell empty-python-cli rerun
+  printf '# Testing\n\n- a. Project decision\n' > "$WORKSPACE/.ai/testing.md"
+
+  # T72 and T73 rerun succeeds with exactly one added line in exactly one file
+  expect_ok T72-run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  cell_paths "$TEST_RUN2" empty-python-cli rerun
+  SUBJECTS=$(fgit log --format=%s | tr '\n' '|')
+  if [ "$SUBJECTS" = "Maintainer policy addition|Fixture baseline|" ] && [ -z "$(fgit status --porcelain=v2 --untracked-files=all)" ] \
+    && [ -f "$WORKSPACE/.git" ] && [ "$(grep -Fxc -e "$RULE" "$WORKSPACE/.ai/testing.md")" = "1" ] \
+    && [ "$(sed -n 1p "$CELL/maintainer-rule.txt")" = ".ai/testing.md" ] && [ "$(sed -n 2p "$CELL/maintainer-rule.txt")" = "$RULE" ]; then
+    pass T72
+  else
+    fail T72 "commits: $SUBJECTS; rule count: $(grep -Fxc -e "$RULE" "$WORKSPACE/.ai/testing.md")"
+  fi
+  if [ "$(fgit diff --name-only HEAD~1 HEAD)" = ".ai/testing.md" ] && [ "$(fgit diff --numstat HEAD~1 HEAD)" = "1"$'\t'"0"$'\t'".ai/testing.md" ]; then pass T73; else fail T73 "the maintainer commit is not a one-line addition to .ai/testing.md"; fi
+
+  # T74 to T76 the rerun checks
+  check2 empty-python-cli rerun
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "rerun produced no diff" | grep -Fq PASS && echo "$OUT" | grep -F "maintainer rule preserved" | grep -Fq PASS; then pass T74; else fail T74 "$OUT"; fi
+
+  mkdir -p "$WORKSPACE/docs"
+  printf '# New\n' > "$WORKSPACE/docs/new.md"
+  expect2_fail T75 empty-python-cli rerun "rerun produced no diff"
+  rm -rf "$WORKSPACE/docs"
+  expect2_pass T75-undo empty-python-cli rerun
+
+  grep -vxF -e "$RULE" "$WORKSPACE/.ai/testing.md" > "$CELL/testing.md.without"
+  cp "$CELL/testing.md.without" "$WORKSPACE/.ai/testing.md"
+  expect2_fail T76 empty-python-cli rerun "maintainer rule preserved"
+  fgit checkout -q -- .ai/testing.md
+  expect2_pass T76-undo empty-python-cli rerun
+
+  # T77 an existing rerun cell is not overwritten
+  BEFORE=$(cksum < "$WORKSPACE/.ai/testing.md")
+  expect_fail T77 "cell already exists" "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  if [ "$BEFORE" = "$(cksum < "$WORKSPACE/.ai/testing.md")" ]; then pass T77-intact; else fail T77-intact "an existing file changed"; fi
+
+  # T81 a file is matched by its first heading, not only by its name
+  expect_ok T81-setup "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" polyglot-monorepo fresh
+  cell_paths "$TEST_RUN2" polyglot-monorepo fresh
+  printf '{"verdict": "pass"}\n' > "$CELL/result.json"
+  mkdir -p "$WORKSPACE/.ai"
+  printf '# Architecture\n\n- Layers stay separate. Project decision\n' > "$WORKSPACE/.ai/rules.md"
+  expect_ok T81-run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN2" polyglot-monorepo rerun
+  cell_paths "$TEST_RUN2" polyglot-monorepo rerun
+  RULE_P=$(matrix_rule polyglot-monorepo text)
+  if [ "$(sed -n 1p "$CELL/maintainer-rule.txt")" = ".ai/rules.md" ] && [ "$(grep -Fxc -e "$RULE_P" "$WORKSPACE/.ai/rules.md")" = "1" ]; then pass T81; else fail T81 "the rule did not go into .ai/rules.md exactly once"; fi
+  expect2_pass T81-check polyglot-monorepo rerun
+
+  # T83 and T84 every scenario prepares cleanly in each state, and every rerun rule resolves
+  expect_ok T83-setup "$SCRIPTS/new-run.sh" "$TEST_RUN3"
+  for d in "$FIXTURES"/*/; do
+    s=$(basename "$d")
+    for st in fresh foreign; do
+      run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN3" "$s" "$st"
+      if [ "$RC" -ne 0 ] && echo "$OUT" | grep -Fq 'could not copy'; then
+        skip "T83-$s-$st" "blocked by the sandbox: $(echo "$OUT" | head -1 | cut -c1-150)"
+        continue
+      fi
+      if [ "$RC" -ne 0 ]; then fail "T83-$s-$st" "prepare failed: $OUT"; continue; fi
+      run "$SCRIPTS/check-cell.sh" "$TEST_RUN3" "$s" "$st"
+      if [ "$RC" -eq 0 ]; then pass "T83-$s-$st"; else fail "T83-$s-$st" "$OUT"; fi
+    done
+  done
+  for d in "$FIXTURES"/*/; do
+    s=$(basename "$d")
+    if [ ! -d "$RESULTS/$TEST_RUN3/$s/fresh/workspace" ]; then skip "T84-$s" "no fresh cell (blocked earlier)"; continue; fi
+    cell_paths "$TEST_RUN3" "$s" fresh
+    TOPIC=$(matrix_rule "$s" topic)
+    RULE_S=$(matrix_rule "$s" text)
+    printf '{"verdict": "pass"}\n' > "$CELL/result.json"
+    mkdir -p "$WORKSPACE/.ai"
+    printf '# %s\n\n- Existing rule. Project decision\n' "$TOPIC" > "$WORKSPACE/.ai/$TOPIC.md"
+    run "$SCRIPTS/prepare-cell.sh" "$TEST_RUN3" "$s" rerun
+    if [ "$RC" -ne 0 ]; then fail "T84-$s" "rerun prepare failed: $OUT"; continue; fi
+    cell_paths "$TEST_RUN3" "$s" rerun
+    run "$SCRIPTS/check-cell.sh" "$TEST_RUN3" "$s" rerun
+    if [ "$RC" -eq 0 ] && [ "$(grep -Fxc -e "$RULE_S" "$WORKSPACE/.ai/$TOPIC.md")" = "1" ]; then pass "T84-$s"; else fail "T84-$s" "$OUT"; fi
+  done
 }
 
 run_config_group() {
@@ -401,9 +629,18 @@ sys.exit(0 if ok else 1)' "$SETTINGS"
     grep -Fq "$n" "$README" || MISSING="$MISSING $n"
   done
   if [ -z "$MISSING" ]; then pass T32; else fail T32 "README lacks:$MISSING"; fi
+
+  # T85 the skill no longer lists the states as unsupported and requires a verdict in result.json
+  if ! grep -Fq 'Not yet scripted' "$SKILL" && grep -Fq '"verdict": "pass"' "$SKILL"; then pass T85; else fail T85 "skill still lists unsupported states or does not mention the verdict"; fi
+
+  # T86 the README documents the matrix field
+  if grep -Fq 'rerunMaintainerRule' "$README" && grep -Fq 'legacy-node-service' "$README"; then pass T86; else fail T86 "README does not document rerunMaintainerRule and the legacy state"; fi
 }
 
-[ "$GROUP" = "config" ] || run_scripts_group
+if [ "$GROUP" != "config" ]; then
+  run_scripts_group
+  run_states_group
+fi
 [ "$GROUP" = "scripts" ] || run_config_group
 
 echo
