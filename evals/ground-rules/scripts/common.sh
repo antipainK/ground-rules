@@ -77,7 +77,13 @@ write_changed_lists() {
   sed 's|^\./||' "$CELL/initial-files.txt" | sort > "$out/initial.txt"
   comm -13 "$out/initial.txt" "$out/current.txt" > "$out/created.txt"
   comm -23 "$out/initial.txt" "$out/current.txt" > "$out/deleted.txt"
-  fgit diff --name-only | sed '/^$/d' > "$out/modified.txt"
+  # A tracked file that was already dirty or staged before the run has a saved copy; it counts
+  # as modified only when its content differs from that copy (handled in the loop below).
+  fgit diff --name-only | sed '/^$/d' > "$out/diff-names.txt"
+  : > "$out/modified.txt"
+  while IFS= read -r f; do
+    [ -f "$CELL/pre-run-copies/$f" ] || echo "$f" >> "$out/modified.txt"
+  done < "$out/diff-names.txt"
   if [ -d "$CELL/pre-run-copies" ]; then
     (cd "$CELL/pre-run-copies" && find . -type f -print) | sed 's|^\./||' > "$out/preexisting.txt"
     while IFS= read -r f; do
