@@ -60,7 +60,10 @@ would be faster. The first modal asks:
    final blind evaluators; stop a cell after three unsuccessful review rounds.
 
 If the operator chooses a filtered run, ask scenario and state filters in the
-next modal because they depend on that answer. If `AskUserQuestion` is genuinely
+next modal because they depend on that answer. A modal question holds at most
+four options, so offer the six scenarios as two questions in one modal (three
+scenarios each, multi-select, "none from this group" allowed) and never omit a
+scenario. If `AskUserQuestion` is genuinely
 unavailable, render the same numbered options as text, end the turn, and wait;
 never treat tool availability as approval.
 
@@ -266,7 +269,10 @@ Give the persona agent only:
 It must not inspect files or use tools. It chooses only from options the target
 actually presented. Persona prose supplies tone and role only; facts and choices
 must be authorized by a decision. For each question, disclose only the minimum
-facts needed to answer that question, never a later decision. When a question
+facts needed to answer that question, never a later decision. Do not mention
+topics, formats or choices the current question does not ask about, even when
+they appear in the same decision or would make the answer more natural; the
+orchestrator rejects such an answer. When a question
 asks for several facts and the decisions specify only some, state that the
 others are unknown. It returns selected option text and the exact decision
 statement that authorized it. If no decision authorizes a choice, it returns
