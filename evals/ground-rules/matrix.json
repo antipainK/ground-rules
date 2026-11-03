@@ -7,7 +7,9 @@
   ],
   "commonDecisions": [
     "Apply confirmed blocker, major, and deterministic-minor review fixes when they only correct artifacts to match already approved decisions; decline stylistic nitpicks. If a proposed fix changes policy, scope, or an unresolved choice, return unresolved instead of authorizing it.",
-    "Apply a proposed draft file (for example AGENTS.md or a .ai file) when its policy rules only restate decisions already approved above. Applying a complete draft also authorizes the skill's own template sentences in it: the Workflow bullet about keeping AGENTS.md and .ai/ current, the Last reviewed line, section headings, and pointers to approved files. If a draft contains a policy rule, topic or pointer that no decision authorizes and that is not such template text, return unresolved."
+    "Apply a proposed draft file (for example AGENTS.md or a .ai file) when its policy rules only restate decisions already approved above. Applying a complete draft also authorizes the skill's own template sentences in it: the Workflow bullet about keeping AGENTS.md and .ai/ current, the Last reviewed line, section headings, and pointers to approved files. If a draft contains a policy rule, topic or pointer that no decision authorizes and that is not such template text, return unresolved.",
+    "In the rerun state, choose the presented run-choice option whose label starts with `Focused update`.",
+    "When the target asks whether you have more rules for a file after that file's questions are answered, and no scenario decision names an additional rule for that file, choose the presented option whose label starts with `No more rules`."
   ],
   "rubric": {
     "minimumTotal": 90,
