@@ -1,0 +1,115 @@
+{
+  "id": "documentation-heavy-rust-workspace",
+  "persona": "Documentation curator maintaining a Cargo workspace with living docs, snapshots, and todo files.",
+  "foreignRunChoice": "Migrate interactively",
+  "rerunMaintainerRule": {
+    "topics": [
+      "code-style",
+      "style",
+      "conventions"
+    ],
+    "text": "- Keep each module file under 400 lines; split larger modules into submodules. Project decision"
+  },
+  "allowedChangePrefixes": [
+    "AGENTS.md",
+    ".ai/",
+    "docs/",
+    ".cursor/rules/",
+    "CLAUDE.md",
+    "Cargo.toml",
+    "crates/core/Cargo.toml",
+    "rustfmt.toml",
+    "clippy.toml",
+    ".cargo/"
+  ],
+  "policySpec": {
+    "docsGovernance": "Snapshot + living docs",
+    "structure": "Focused files",
+    "approvedFiles": [
+      ".ai/code-style.md"
+    ],
+    "declinedFiles": [
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "topics": {
+      ".ai/code-style.md": [
+        "formatting",
+        "linting",
+        "naming",
+        "error handling",
+        "unsafe code",
+        "public documentation"
+      ]
+    },
+    "docRenames": {
+      "docs/Architecture.MD": "docs/architecture.md",
+      "docs/Design FINAL (1).md": "keep-current-name",
+      "docs/Meeting 12.03.md": "keep-current-name"
+    },
+    "lifecycle": {
+      "tickCompletedTodo": true,
+      "createMigrationTodo": true,
+      "commit": "Don't commit"
+    },
+    "foreignRunChoice": "Migrate interactively"
+  },
+  "artifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/code-style.md",
+      "docs/architecture.md",
+      "docs/Design FINAL (1).md",
+      "docs/Meeting 12.03.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/todo/*.md"
+    ],
+    "forbiddenFiles": [
+      "docs/Architecture.MD",
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "foreignDeletedFiles": [
+      ".cursor/rules/docs.mdc",
+      "CLAUDE.md"
+    ],
+    "requiredSubstrings": {
+      "docs/index.md": [
+        "(architecture.md)"
+      ]
+    }
+  },
+  "decisions": [
+    "Preserve snapshot bodies.",
+    "Choose the Snapshot + living docs governance policy.",
+    "Treat `Architecture.MD` as a living document and rename it to `architecture.md`, adding `Last reviewed`. Keep `Design FINAL (1).md` unchanged because its snapshot date is unknown, and keep `Meeting 12.03.md` unchanged because its date is ambiguous. Update only allowed references for the approved architecture rename.",
+    "Approve ticking the stale `Add a missing crate that now exists` item in the existing to-do; leave the already completed item unchanged.",
+    "Choose Focused files. Select only `.ai/code-style.md`; decline architecture, testing, Git workflow and tech-stack policy files because architecture rationale belongs in `docs/`.",
+    "For `.ai/code-style.md`, select only formatting, linting, naming, error handling, unsafe code and public documentation topics. If the displayed topic options cover only formatting and linting, answer through Other/free text with `Formatting, linting, naming, error handling, unsafe code and public documentation`.",
+    "Choose these Rust rules from now on: check formatting with `cargo fmt --all --check`; check linting with `cargo clippy --workspace --all-targets -- -D warnings`; follow standard Rust item naming; return recoverable library errors instead of panicking; add no unsafe code; document public APIs. Add no new crates or configuration solely for these rules.",
+    "Keep structurally valid Cargo commands in AGENTS.md even if Cargo is unavailable on the current machine; report them as not run rather than creating repository migration work.",
+    "In the foreign state, accept deleting `.cursor/rules/docs.mdc`. Rewrite and move the `CLAUDE.md` claim into the living `docs/architecture.md` as a possible future direction: `Consider ports and adapters if workspace complexity requires stronger boundaries.` Do not state that the current one-crate workspace already uses that architecture.",
+    "Approve deleting `.cursor/rules/docs.mdc` and `CLAUDE.md` after the rewritten architecture note exists in `docs/architecture.md`.",
+    "Create a migration to-do for existing code that does not meet the selected public-documentation or lint rules; create no item merely because Cargo is unavailable locally.",
+    "Decline commit and push."
+  ],
+  "fresh": [
+    "Documentation contains ambiguous dates, uppercase extensions, copy suffixes, and relative links.",
+    "Some todo items are stale while others remain open."
+  ],
+  "foreign": [
+    "A Cursor rule permits editing historical plans in place.",
+    "CLAUDE.md contains a long architecture essay."
+  ],
+  "invariants": [
+    "Every ambiguous date remains a user choice.",
+    "Skipped names remain unchanged.",
+    "Approved renames update allowed references without changing application code.",
+    "Snapshot immutability survives migration and architecture rationale moves to docs."
+  ]
+}

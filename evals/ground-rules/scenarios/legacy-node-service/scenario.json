@@ -1,0 +1,110 @@
+{
+  "id": "legacy-node-service",
+  "persona": "Long-term maintainer modernizing an npm Express/CommonJS service without rewriting application code.",
+  "foreignRunChoice": "Migrate interactively",
+  "rerunMaintainerRule": {
+    "topics": [
+      "code-style",
+      "style",
+      "conventions"
+    ],
+    "text": "- Return or `await` every Promise created in an `async` function; do not leave floating Promises. Project decision"
+  },
+  "allowedChangePrefixes": [
+    "AGENTS.md",
+    ".ai/",
+    "docs/",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md"
+  ],
+  "policySpec": {
+    "dirtyWorkChoice": "Continue without commit",
+    "docsGovernance": "Snapshot + living docs",
+    "structure": "Focused files",
+    "approvedFiles": [
+      ".ai/code-style.md"
+    ],
+    "declinedFiles": [
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "topics": {
+      ".ai/code-style.md": [
+        "naming",
+        "asynchronous control flow"
+      ]
+    },
+    "docRenames": {
+      "docs/Architecture FINAL.MD": "docs/architecture-final.md",
+      "docs/Meeting 12.03.md": "keep-current-name"
+    },
+    "lifecycle": {
+      "createMigrationTodo": true,
+      "commit": "Don't commit"
+    },
+    "foreignRunChoice": "Migrate interactively"
+  },
+  "artifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/code-style.md",
+      "docs/architecture-final.md",
+      "docs/Meeting 12.03.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/todo/*.md"
+    ],
+    "forbiddenFiles": [
+      "docs/Architecture FINAL.MD",
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "foreignDeletedFiles": [
+      "CLAUDE.md",
+      ".github/copilot-instructions.md"
+    ],
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "yarn test"
+      ],
+      ".ai/code-style.md": [
+        "yarn test",
+        "Write clean code",
+        "Always answer briefly"
+      ]
+    }
+  },
+  "decisions": [
+    "When pre-existing staged work is reported in the fresh state, choose Continue without commit; preserve the staged README.md and unstaged src/server.js edits byte-for-byte, and keep commit and push disabled for that run.",
+    "Keep CommonJS until a separate migration.",
+    "Apply these rules from now on: use camelCase for project-controlled identifiers, and use async/await instead of `.then()` chains for Promise-returning APIs. `From now on` authorizes the skill's standard new-and-changed-code scope. Because the async choice has no external source, authorize this sharpened line or any equivalent Project decision phrasing for calling Promise-returning APIs with `await` in an `async` function rather than `.then()` chains.",
+    "Keep existing ESLint and Prettier enforcement without duplicating rules.",
+    "Keep ESLint `eqeqeq` disabled; do not add an equality rule in prose or change that setting.",
+    "Choose the Snapshot + living docs governance policy.",
+    "Mechanically normalize `Architecture FINAL.MD` to `architecture-final.md` without inferring a document type or review date; leave the ambiguous meeting date unchanged.",
+    "Choose Focused files. Select only `.ai/code-style.md`; decline architecture, testing, Git workflow and tech-stack files and omit their pointers.",
+    "For `.ai/code-style.md`, select only naming and asynchronous-control-flow topics. If asynchronous control flow is absent from the displayed topic options, answer that topic-selection question through Other/free text with `Naming and asynchronous control flow`. Apply the already chosen modern naming and async rules; add no equality, module-system or formatter policy beyond pointers to existing ESLint and Prettier configuration.",
+    "In the foreign state, accept the proposed verdict table for `CLAUDE.md`: rewrite `yarn test` to the verified `npm test` command, delete `Write clean code` as vague, and delete `Always answer briefly` as tone guidance.",
+    "In the foreign state, accept the proposed verdict table for `.github/copilot-instructions.md`: replace the single-quotes and semicolons prose with a pointer to existing Prettier configuration, and replace `Run ESLint` with the verified lint-command pointer without duplicating configured rules.",
+    "Approve deleting `CLAUDE.md` and `.github/copilot-instructions.md` after their accepted content is represented in canonical files.",
+    "Create a migration to-do; decline commit and push."
+  ],
+  "fresh": [
+    "ESLint and Prettier exist, lint already fails, an unrelated application file is dirty, and README has a staged operator edit.",
+    "Documentation names violate the proposed convention."
+  ],
+  "foreign": [
+    "CLAUDE.md contains an obsolete Yarn command, vague style rules, and tone instructions.",
+    "Copilot instructions duplicate configured ESLint rules."
+  ],
+  "invariants": [
+    "The dirty application file remains byte-for-byte unchanged and uncommitted.",
+    "Tool-enforced rules point to configuration instead of duplicating it.",
+    "Existing lint failures become migration work, not application-code edits.",
+    "Approved documentation renames preserve content and remain unstaged until commit approval."
+  ]
+}

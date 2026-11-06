@@ -1,0 +1,109 @@
+{
+  "id": "empty-python-cli",
+  "persona": "Novice maintainer building a Python URL-checker CLI that emits JSON.",
+  "foreignRunChoice": "Migrate interactively",
+  "rerunMaintainerRule": {
+    "topics": [
+      "testing",
+      "tests"
+    ],
+    "text": "- Tests that create files remove them when they finish. Project decision"
+  },
+  "stateFacts": {
+    "foreign": [
+      "The fixture's `.cursorrules` is a shared repository instruction file, not a machine-local override."
+    ]
+  },
+  "allowedChangePrefixes": [
+    "AGENTS.md",
+    ".ai/",
+    "docs/",
+    ".cursorrules"
+  ],
+  "policySpec": {
+    "projectIntent": "Build a Python command-line URL checker that emits JSON; intended users and JSON shape remain undecided.",
+    "docsGovernance": "Snapshot + living docs",
+    "toolingChoice": "Document rules only",
+    "structure": "Focused files",
+    "approvedFiles": [
+      ".ai/testing.md"
+    ],
+    "declinedFiles": [
+      ".ai/architecture.md",
+      ".ai/code-style.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "topics": {
+      ".ai/testing.md": [
+        "behavior-change coverage",
+        "network and test isolation"
+      ]
+    },
+    "lifecycle": {
+      "applyInitialSketch": true,
+      "commit": "Don't commit"
+    },
+    "foreignRunChoice": "Migrate interactively"
+  },
+  "artifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/testing.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/first-sketch_*.md"
+    ],
+    "forbiddenFiles": [
+      ".ai/architecture.md",
+      ".ai/code-style.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "foreignDeletedFiles": [
+      ".cursorrules"
+    ],
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "npm ",
+        "React",
+        "TypeScript"
+      ],
+      ".ai/testing.md": [
+        "unittest.mock",
+        "pytest",
+        "httpretty",
+        "responses"
+      ]
+    }
+  },
+  "decisions": [
+    "Project intent: build a Python command-line URL checker that emits JSON. Intended users are not yet specified; do not invent users or additional requirements.",
+    "Apply the initial sketch.",
+    "Choose the Snapshot + living docs governance policy.",
+    "Document rules only; do not create a manifest or commands.",
+    "Use focused file organization.",
+    "Select testing as the only optional policy file. Decline architecture, code style, CLI output, and Git workflow files; omit those files and their pointers.",
+    "For testing topics, select behavior-change coverage and network isolation. Skip output-contract testing because the JSON shape remains undecided.",
+    "For coverage, require a test for every new or changed behavior and every bug fix in the same change. A sharpened confirmation that adds `in the same change` is authorized and must be applied.",
+    "For isolation, require tests to make no real network requests and remain deterministic and isolated. A displayed `Tests run independently` option means the same approved isolation requirement, including independence from run order; select it rather than returning unresolved.",
+    "Do not prescribe fakes, mocks, local servers, a framework, a command, or an enforced layout.",
+    "In the foreign state, accept the proposed Delete verdict for the `.cursorrules` rule requiring React, TypeScript, Node.js, and npm because it contradicts the chosen Python CLI, and approve deleting that file when the final removal is shown.",
+    "Decline commit and push."
+  ],
+  "fresh": [
+    "No manifest, source, commands, docs, or AI instructions exist.",
+    "The user chooses Python and decides whether to bootstrap tooling."
+  ],
+  "foreign": [
+    ".cursorrules incorrectly requires Node.js, React, and TypeScript."
+  ],
+  "invariants": [
+    "No manifest, dependency, command, or enforcement claim appears without an explicit tooling choice.",
+    "No architecture or code-style file or pointer appears when all of its topics were deferred.",
+    "The initial sketch is marked as a possibly outdated snapshot.",
+    "When the initial sketch is applied with Snapshot + living docs, AGENTS.md names its exact path and labels it a possibly outdated snapshot.",
+    "Testing policy does not prescribe an implementation technique such as fakes, mocks, or local servers.",
+    "Rejected Node.js rules do not survive migration."
+  ]
+}

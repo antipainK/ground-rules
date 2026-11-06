@@ -1,0 +1,98 @@
+{
+  "id": "enforcement-heavy-python-api",
+  "persona": "Reliability-focused FastAPI maintainer using uv, Ruff, and partially configured mypy.",
+  "foreignRunChoice": "Full re-audit",
+  "rerunMaintainerRule": {
+    "topics": [
+      "code-style",
+      "style",
+      "conventions"
+    ],
+    "text": "- Keep route handlers thin: put business logic in service functions that tests call directly. Project decision"
+  },
+  "allowedChangePrefixes": [
+    "AGENTS.md",
+    ".ai/",
+    "docs/",
+    ".github/copilot-instructions.md",
+    ".github/workflows/",
+    "pyproject.toml",
+    "uv.lock"
+  ],
+  "policySpec": {
+    "structure": "Focused files",
+    "approvedFiles": [
+      ".ai/code-style.md"
+    ],
+    "declinedFiles": [
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md",
+      ".ai/typing.md"
+    ],
+    "topics": {
+      ".ai/code-style.md": [
+        "linting",
+        "typing"
+      ]
+    },
+    "lifecycle": {
+      "createMigrationTodo": true,
+      "commit": "Don't commit"
+    },
+    "foreignRunChoice": "Full re-audit"
+  },
+  "artifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/code-style.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/todo/*.md"
+    ],
+    "forbiddenFiles": [
+      ".ai/architecture.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/typing.md",
+      ".ai/style.md",
+      ".ai/git-workflow.md"
+    ],
+    "foreignDeletedFiles": [
+      ".ai/style.md",
+      ".github/copilot-instructions.md"
+    ],
+    "requiredSubstrings": {
+      ".ai/code-style.md": [
+        "After migration."
+      ]
+    }
+  },
+  "decisions": [
+    "Keep Ruff as the source of truth and do not duplicate its rules.",
+    "Choose Focused files. Select only `.ai/code-style.md`; decline architecture, testing, Git workflow and tech-stack files and omit their pointers.",
+    "For `.ai/code-style.md`, select only linting and typing topics. Both topics stay in the displayed `.ai/code-style.md` destination; do not authorize `.ai/typing.md` or another split file. Add no formatter, test-layout or framework rule.",
+    "Add no general rule requiring type annotations on new public functions; choose No rule when that question is asked.",
+    "Accept stricter Ruff configuration by selecting `E`, `F` and `I` while retaining line length 100. Apply it from now on and keep Ruff as the checking source instead of copying individual lint rules into Markdown.",
+    "Keep current non-strict mypy configuration and do not add mypy to CI. If the current question specifically asks whether mypy must run locally before merge, defer that local requirement until migration: choose a displayed defer option or use Other/free text with `Defer the local mypy requirement until migration`, and include it in migration work. Do not use that answer for another mypy question. When asked whether to add a prose rule requiring removal of unused `# type: ignore` comments, choose the displayed `No rule` option; preserve `warn_unused_ignores = true` without duplicating it in Markdown. Separately defer the rule `Type ignores name a specific error code; blanket type ignores are not allowed.` until migration.",
+    "Reject new dependencies and blanket suppression configuration. Preserve the existing blanket ignore as migration work; the prohibition becomes active only After migration. Do not add `ruff format` or another formatter.",
+    "In the foreign state, choose `Full re-audit` (or `Migrate interactively` if offered) and accept deleting the `.ai/style.md` blanket-ignore rule. Accept converting the Copilot line-length, import-order and `Run Ruff` prose into pointers to the approved Ruff configuration and verified command without duplicating its rules.",
+    "Approve deleting `.ai/style.md` and `.github/copilot-instructions.md` after the canonical Ruff pointer and deferred typing rule are written in `.ai/code-style.md`.",
+    "Create a migration to-do; decline commit and push."
+  ],
+  "fresh": [
+    "CI runs Ruff but not mypy.",
+    "Existing code violates candidate strict checks."
+  ],
+  "foreign": [
+    "Copilot instructions enumerate Ruff rules in prose.",
+    ".ai/style.md requires blanket type ignores."
+  ],
+  "invariants": [
+    "Ruff-enforced rules are not restated in Markdown.",
+    "A deferred typing rule is explicitly marked After migration.",
+    "No dependency or stricter check is enabled without approval.",
+    "Existing failures are reported and never fixed as application code."
+  ]
+}

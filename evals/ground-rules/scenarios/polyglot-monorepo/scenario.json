@@ -1,0 +1,91 @@
+{
+  "id": "polyglot-monorepo",
+  "persona": "Platform lead maintaining a pnpm TypeScript frontend/API, Go worker, and Python data tool.",
+  "foreignRunChoice": "Full re-audit",
+  "rerunMaintainerRule": {
+    "topics": [
+      "architecture"
+    ],
+    "text": "- A package imports another package only through its public entry point, never its internal files. Project decision"
+  },
+  "allowedChangePrefixes": [
+    "AGENTS.md",
+    ".ai/",
+    "docs/",
+    "workers/events/AGENTS.md",
+    "GEMINI.md"
+  ],
+  "policySpec": {
+    "structure": "Focused files",
+    "approvedFiles": [
+      ".ai/architecture.md"
+    ],
+    "declinedFiles": [
+      ".ai/code-style.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "topics": {
+      ".ai/architecture.md": [
+        "repository-area boundaries"
+      ]
+    },
+    "lifecycle": {
+      "createMigrationTodo": true,
+      "commit": "Don't commit"
+    },
+    "foreignRunChoice": "Full re-audit"
+  },
+  "artifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/architecture.md"
+    ],
+    "forbiddenFiles": [
+      ".ai/code-style.md",
+      ".ai/testing.md",
+      ".ai/tech-stack.md",
+      ".ai/git-workflow.md"
+    ],
+    "foreignRequiredFiles": [
+      "workers/events/AGENTS.md"
+    ],
+    "foreignDeletedFiles": [
+      "GEMINI.md"
+    ],
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "All code in this repository is TypeScript"
+      ]
+    }
+  },
+  "decisions": [
+    "Use global architecture rules; retain language-scoped imported guidance only at its existing scope instead of inventing fresh language policy.",
+    "Choose Focused files. Select only `.ai/architecture.md`; decline code-style, testing, Git workflow and tech-stack files and omit their pointers.",
+    "For `.ai/architecture.md`, select only repository-area boundaries. If the target offers folder placement instead, answer the topic-selection question through Other/free text with `Repository-area boundaries`; do not select Folder layout or authorize separate apps/, workers/ or tools/ placement rules. Add this rule: `Keep the frontend, API, event worker and data tool as separate areas; scope commands and guidance to the area they affect. Project decision`.",
+    "Keep valid nested Go guidance at its original scope. Accept rewriting its formatting command to the non-writing `gofmt -d .` check and keep `go test ./...`; keep `workers/events/AGENTS.md` in place and do not migrate or delete it.",
+    "Reject global TypeScript and Python claims.",
+    "Use root task-runner commands only when they cover every package.",
+    "Treat the repository's technology choices as still changing for this interview and omit a tech-stack policy file.",
+    "Do not add missing tool dependencies or alter aggregate task configuration. Omit root aggregate commands because their package tools are not declared; do not describe a missing machine executable as the reason.",
+    "In the foreign state, accept deleting both false global rules in the root `AGENTS.md` and the global Ruff rule in `GEMINI.md`, rewrite root `AGENTS.md` into the canonical index pointing to `.ai/architecture.md`, and approve deleting `GEMINI.md`. Leave the nested Go `workers/events/AGENTS.md` at its narrower scope.",
+    "If a migration to-do is proposed for the missing project wiring behind the invalid aggregate test and lint commands, approve it; if the target reports the missing wiring as an open problem without creating a migration to-do (because no command rule was deferred), accept that as well. Add no dependency or task-runner change.",
+    "Decline commit and push."
+  ],
+  "fresh": [
+    "Root and package-specific commands exist across three languages.",
+    "The user wants global architecture boundaries and language-scoped code rules."
+  ],
+  "foreign": [
+    "Root AGENTS.md incorrectly says all code is TypeScript.",
+    "A nested worker AGENTS.md contains valid Go guidance.",
+    "GEMINI.md applies Python rules globally."
+  ],
+  "invariants": [
+    "No language-specific rule or command is presented as repository-global unless it truly is.",
+    "Valid nested guidance retains its narrower scope.",
+    "Every command and pointer identifies the package or task runner it covers.",
+    "A root rule never contradicts a narrower package rule."
+  ]
+}
