@@ -297,8 +297,8 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      retry using `resumeAgentId`; if a second format failure occurs, run
      `score-cell.sh <run-id> <scenario> <state> harness-error "<reason>"`.
    - `RUN_WORKFLOW_REVIEW`: run `verify-cell.sh <run-id> <scenario> <state>`,
-     launch one pair of `eval-reviewer` agents (`round-1-reviewer-a.json` and
-     `round-1-reviewer-b.json`), then run:
+     launch one `eval-reviewer` agent (`round-1-reviewer-a.json`;
+     `round-1-reviewer-b.json` is optional), then run:
      `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> workflow-review`
      and resume `resumeAgentId` (target) with only the `workflowReviews` object
      from `next-step.json`. Never add any orchestrator note, hint, or scenario
@@ -311,7 +311,11 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `evals/ground-rules/scripts/verify-cell.sh <run-id> <scenario> <state> --assertions`
 2. Build the blind reviewer inputs with:
    `evals/ground-rules/scripts/prep-blind-review.sh <run-id> <scenario> <state>`
-3. Launch two independent `eval-reviewer` agents. Give each only:
+3. For `rerun` cells, skip this step and step 4's reviewers: `score-cell.sh`
+   scores a zero-diff `rerun` deterministically. For `fresh` and `foreign`
+   cells, launch one blind `eval-reviewer` agent (`review-1.json`) and launch
+   `review-2.json` only if `score-cell.sh` exits with `NEEDS_SECOND_REVIEWER`
+   (exit code 3). Give each reviewer only:
    - `<cell>/initial-workspace/`
    - `<cell>/workspace/`
    - `<cell>/blind-input/`
@@ -337,7 +341,9 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `userControlAndAuthorization`, `policyAndContradictionFidelity`,
    `repositoryAndArtifactAccuracy`, `maintainabilityAndDocsHygiene`) with:
    `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> blind`
-   If `score-cell.sh` exits with `NEEDS_TIE_BREAKER` (exit code 2), launch one
+   If it exits with `NEEDS_SECOND_REVIEWER` (exit code 3), launch the second
+   reviewer as above and re-run it. If it exits with `NEEDS_TIE_BREAKER`
+   (exit code 2), launch one
    third `eval-reviewer` saved to `<cell>/review-3.json` and re-run
    `score-cell.sh <run-id> <scenario> <state> blind`.
 5. After all selected cells finish, run:

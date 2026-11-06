@@ -435,6 +435,17 @@ sys.exit(0 if ok else 1)' "$CELL/result.json"; then
 R2_BAD
   expect_fail T24-bad-quote "not found near" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
 
+  # A hardFailure disagreement between two reviewers needs a tie-breaker even when scores match
+  cat > "$CELL/review-2.json" <<'R2_HF'
+{"hardFailure": true, "deductions": []}
+R2_HF
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  if [ "$RC" -eq 2 ] && echo "$OUT" | grep -Fxq "NEEDS_TIE_BREAKER"; then
+    pass T24-hardfailure-disagreement
+  else
+    fail T24-hardfailure-disagreement "rc=$RC out=$OUT"
+  fi
+
   # Tie-breaker triggered when reviewer spread > 10
   cat > "$CELL/review-2.json" <<'R2_SPREAD'
 {"hardFailure": false, "deductions": [{"anchorId": "FRAGILE_FACT_OR_DUPLICATE_RULE", "category": "maintainabilityAndDocsHygiene", "artifactPath": ".ai/testing.md", "line": 5, "quote": "Keep tests isolated", "explanation": "Duplicate rule"}]}
@@ -449,7 +460,39 @@ R2_SPREAD
 {"hardFailure": false, "deductions": []}
 R3
   expect_ok T24-tiebreaker-resolved "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  if python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r["confidence"] == "tie-broken" and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "filteredDeductions" in r else 1)' "$CELL/result.json"; then
+    pass T24-tiebreaker-values
+  else
+    fail T24-tiebreaker-values "$(cat "$CELL/result.json")"
+  fi
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
+  if python3 -I -c 'import json,sys
+s = json.load(open(sys.argv[1]))
+sys.exit(0 if s["model"] == "claude-sonnet-5-5" and s["filtered"] is True and s["releaseGatePassed"] is False and len(s["cells"]) >= 1 else 1)' "$RESULTS/$TEST_RUN/summary.json"; then
+    pass T24-summary-values
+  else
+    fail T24-summary-values "$(cat "$RESULTS/$TEST_RUN/summary.json")"
+  fi
+  expect_fail T24-summary-needs-model "requires the exact model id" "$SCRIPTS/score-cell.sh" summary "$TEST_RUN"
+
+  # blocked / harness-error must record a result even when prep-cell.sh already removed the cell
+  GONE="$RESULTS/$TEST_RUN/polyglot-monorepo/fresh"
+  if [ -e "$GONE" ]; then
+    skip T24-blocked-no-cell "unexpected existing cell $GONE"
+  else
+    expect_ok T24-blocked-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh blocked "prep failed"
+    if python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r["verdict"] == "blocked" and r["reason"] == "prep failed" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
+      pass T24-blocked-values
+    else
+      fail T24-blocked-values "$(cat "$GONE/result.json" 2>&1)"
+    fi
+    rm -rf "$GONE"
+  fi
+  expect_fail T24-blind-no-cell "no such cell" "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh blind
 
   # T25 static scan: no eval, process substitution or xargs; syntax valid
   BAD=""
@@ -725,4 +768,9 @@ fi
 
 echo
 echo "passed: $PASSED, failed: $FAILED, skipped: $SKIPPED"
+# TEST_STRICT_SKIPS=1 makes skipped tests (e.g. the fsmonitor control) fail the run, for CI.
+if [ -n "${TEST_STRICT_SKIPS:-}" ] && [ "$SKIPPED" -gt 0 ]; then
+  echo "strict mode: $SKIPPED skipped test(s) count as failure"
+  exit 1
+fi
 [ "$FAILED" -eq 0 ]

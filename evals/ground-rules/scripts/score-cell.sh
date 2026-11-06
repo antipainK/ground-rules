@@ -15,9 +15,10 @@ if [ "$1" = "summary" ]; then
   RUN_ID="$2"
   RUN_ROOT="$RESULTS/$RUN_ID"
   [ -d "$RUN_ROOT" ] || die "run does not exist: $RUN_ID"
-  MODEL="${3:-claude-sonnet-5-5}"
+  MODEL="${3:-}"
+  [ -n "$MODEL" ] || die "summary requires the exact model id (e.g. claude-sonnet-5-5)"
   FILTERED="${4:-false}"
-  python3 -I -c 'import glob,json,os,subprocess,sys
+  python3 -I -c 'import glob,json,os,re,subprocess,sys
 run_root, gr_root, rubric_path, model, filtered_str = sys.argv[1:6]
 rubric_doc = json.load(open(rubric_path))
 filtered = filtered_str.lower() == "true"
@@ -35,7 +36,8 @@ for res_path in sorted(glob.glob(os.path.join(run_root, "*", "*", "result.json")
 
 all_18 = len(cells) == 18
 all_pass = all_18 and all(c.get("verdict") == "pass" and not c.get("hardFailure", False) for c in cells)
-is_sonnet = "sonnet" in model.lower()
+m = re.fullmatch(r"claude-sonnet-(\d+)-(\d+)", model.lower())
+is_sonnet = bool(m) and (int(m.group(1)), int(m.group(2))) >= (5, 5)
 
 # Aggregates per category across scored cells
 cat_keys = list(rubric_doc["rubric"]["categories"].keys())
@@ -69,9 +71,9 @@ STATE="$3"
 MODE="${4:-blind}"
 REASON="${5:-}"
 
-[ -d "$CELL" ] || die "no such cell: $CELL"
-
 if [ "$MODE" = "harness-error" ] || [ "$MODE" = "blocked" ]; then
+  # prep-cell.sh removes the cell on failure, so these modes must work without one.
+  mkdir -p "$CELL"
   [ -n "$REASON" ] || REASON="cell stopped with $MODE"
   python3 -I -c 'import json,os,sys
 cell, scenario, state, mode, reason = sys.argv[1:6]
@@ -94,9 +96,13 @@ print(mode)' "$CELL" "$SCENARIO" "$STATE" "$MODE" "$REASON"
 fi
 
 [ "$MODE" = "blind" ] || die "unknown mode: $MODE (expected blind, harness-error, blocked, or summary)"
+[ -d "$CELL" ] || die "no such cell: $CELL"
 
-# Always run verify-cell.sh --assertions before blind scoring so stale Step 9 checks are never reused
+# Always run verify-cell.sh --assertions before blind scoring so stale Step 9 checks are never reused.
+# Remove the old file first: a verify-cell.sh that aborts before writing it must not leave an earlier pass behind.
+rm -f "$CELL/deterministic-checks.json"
 "$(dirname "$0")/verify-cell.sh" "$1" "$2" "$3" --assertions > /dev/null || true
+[ -f "$CELL/deterministic-checks.json" ] || die "verify-cell.sh did not write deterministic-checks.json for $CELL"
 
 python3 -I -c 'import json,os,re,statistics,sys
 cell, workspace, rubric_path, scenario, state = sys.argv[1:6]
@@ -161,6 +167,8 @@ NON_DEFECT_PATTERNS = [
     r"mvnw verify.*not run"
 ]
 
+FILTERED = {}
+
 def validate_and_score_review(rev, label):
     if not isinstance(rev, dict):
         raise SystemExit(f"error: {label} is not a JSON object")
@@ -170,6 +178,7 @@ def validate_and_score_review(rev, label):
     computed = {cat: 100 for cat in categories}
     computed["safety"] = 100 if det_passed else 0
     valid_deductions = []
+    filtered_out = []
 
     for idx, d in enumerate(deductions, 1):
         if not isinstance(d, dict):
@@ -210,6 +219,7 @@ def validate_and_score_review(rev, label):
         # Filter disclosed execution-limitation non-defects automatically
         combined_text = f"{quote} {explanation}".lower()
         if any(re.search(pat, combined_text) for pat in NON_DEFECT_PATTERNS) and anchor_id == "MISSING_BASELINE_CAVEAT_IN_POINTER":
+            filtered_out.append({"anchorId": anchor_id, "artifactPath": art_path, "line": line_no, "quote": quote, "explanation": explanation})
             continue
 
         pts = anchor["points"]
@@ -226,6 +236,7 @@ def validate_and_score_review(rev, label):
         })
 
     # If reviewer also supplied explicit categoryScores, check consistency unless execution-limitation was filtered
+    FILTERED[label] = filtered_out
     return computed, valid_deductions, bool(rev.get("hardFailure", False))
 
 s1, d1, hf1 = validate_and_score_review(r1, "review-1.json")
@@ -253,7 +264,8 @@ if r2 is None:
             "overallMean": overall_mean,
             "reviewerSpreads": {cat: 0 for cat in categories},
             "confidence": "single-clean",
-            "deductions": {"review1": []}
+            "deductions": {"review1": []},
+            "filteredDeductions": FILTERED
         }
         with open(os.path.join(cell, "result.json"), "w") as f:
             json.dump(result, f, indent=2)
@@ -270,7 +282,7 @@ spreads = {cat: abs(s1[cat] - s2[cat]) for cat in categories}
 needs_tie_breaker = any(sp > max_spread for sp in spreads.values()) or any(
     (s1[cat] >= categories[cat]["passFloor"]) != (s2[cat] >= categories[cat]["passFloor"])
     for cat in categories
-)
+) or (hf1 != hf2)
 
 if needs_tie_breaker and r3 is None:
     out_status = {
@@ -320,7 +332,8 @@ result = {
     "overallMean": overall_mean,
     "reviewerSpreads": spreads,
     "confidence": confidence,
-    "deductions": all_deductions
+    "deductions": all_deductions,
+    "filteredDeductions": FILTERED
 }
 with open(os.path.join(cell, "result.json"), "w") as f:
     json.dump(result, f, indent=2)
