@@ -3,20 +3,44 @@
       "allow": [
         "Bash(git check-ignore *)",
         "Bash(echo \"exit=$?\")",
+        "WebFetch(domain:docs.python.org)",
+        "WebFetch(domain:peps.python.org)",
+        "WebFetch(domain:eslint.org)",
+        "WebFetch(domain:prettier.io)",
+        "WebFetch(domain:nodejs.org)",
+        "WebFetch(domain:developer.mozilla.org)",
+        "WebFetch(domain:docs.astral.sh)",
+        "WebFetch(domain:mypy.readthedocs.io)",
+        "WebFetch(domain:doc.rust-lang.org)",
+        "WebFetch(domain:go.dev)",
+        "WebFetch(domain:maven.apache.org)",
+        "WebFetch(domain:checkstyle.org)",
+        "WebFetch(domain:spotbugs.readthedocs.io)",
+        "Read(evals/ground-rules/**)",
+        "Read(/evals/ground-rules/**)",
+        "Read(plugins/ground-rules/**)",
+        "Read(/plugins/ground-rules/**)",
         "Edit(evals/ground-rules/results/**)",
+        "Edit(/evals/ground-rules/results/**)",
         "Write(evals/ground-rules/results/**)",
+        "Write(/evals/ground-rules/results/**)",
         "SendMessage",
         "Agent(general-purpose)",
         "Agent(eval-reviewer)",
-        "Bash(evals/ground-rules/scripts/new-run.sh *)",
-        "Bash(evals/ground-rules/scripts/prepare-cell.sh *)",
+        "Bash(evals/ground-rules/scripts/init-run.sh)",
+        "Bash(evals/ground-rules/scripts/init-run.sh *)",
         "Bash(evals/ground-rules/scripts/snapshot-source.sh *)",
-        "Bash(evals/ground-rules/scripts/check-cell.sh *)",
-        "Bash(evals/ground-rules/scripts/append-log.sh *)",
-        "Bash(evals/ground-rules/scripts/prepare-blind-input.sh *)"
+        "Bash(evals/ground-rules/scripts/prep-cell.sh *)",
+        "Bash(evals/ground-rules/scripts/step-turn.sh *)",
+        "Bash(evals/ground-rules/scripts/verify-cell.sh *)",
+        "Bash(evals/ground-rules/scripts/prep-blind-review.sh *)",
+        "Bash(evals/ground-rules/scripts/score-cell.sh *)"
       ],
       "ask": [
         "Edit(/evals/ground-rules/scripts/**)",
+        "Edit(/evals/ground-rules/rubric.json)",
+        "Edit(/evals/ground-rules/scenarios/**)",
+        "Edit(/plugins/**)",
         "Edit(/.claude/settings.json)",
         "Edit(/.claude/agents/**)",
         "Edit(/.claude/skills/**)"
@@ -26,7 +50,12 @@
       "filesystem": {
         "denyWrite": [
           "./evals/ground-rules/scripts",
-          "./.claude/agents"
+          "./evals/ground-rules/rubric.json",
+          "./evals/ground-rules/scenarios",
+          "./plugins",
+          "./.claude/settings.json",
+          "./.claude/agents",
+          "./.claude/skills"
         ]
       }
     }

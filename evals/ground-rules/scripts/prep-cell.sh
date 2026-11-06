@@ -1,28 +1,29 @@
 #!/bin/bash
-# Usage: prepare-cell.sh <run-id> <scenario> <fresh|foreign|rerun>
+# Usage: prep-cell.sh <run-id> <scenario> <fresh|foreign|rerun>
 # Builds one evaluation cell under results/<run-id>/<scenario>/<state>/:
 #   workspace/   the working copy
 #   git-data/    separate Git directory, so workspace/.git is a pointer file
 #   pre-*.txt    pre-run records the deterministic checks compare against
 # fresh    copy of the pristine base; legacy-node-service also gets an unstaged operator edit
 #          to src/server.js and a staged release note in README.md
-# foreign  the fresh state plus the foreign overlay, copied after the baseline commit
+# foreign  the fresh state plus the foreign overlay, copied after the baseline commit and
+#          saved in pre-run-copies/ so any unapproved modification is detected
 # rerun    the final files of the passed fresh cell in a new repository, plus one maintainer
-#          rule from matrix.json appended to the single .ai file matching the scenario's topic
+#          rule from scenario.json appended to the single .ai file matching the scenario's topic
 # A copy failure (for example a fixture file the sandbox blocks) removes the half-built cell.
 
 . "$(dirname "$0")/common.sh"
 
-[ $# -eq 3 ] || die "usage: prepare-cell.sh <run-id> <scenario> <state>"
+[ $# -eq 3 ] || die "usage: prep-cell.sh <run-id> <scenario> <state>"
 cell_paths "$1" "$2" "$3"
 SCENARIO="$2"
 STATE="$3"
 
-[ -d "$RUN_ROOT" ] || die "run does not exist: $1 (create it with new-run.sh)"
+[ -d "$RUN_ROOT" ] || die "run does not exist: $1 (create it with init-run.sh)"
 [ ! -e "$CELL" ] || die "cell already exists: $CELL"
 
-BASE="$FIXTURES/$SCENARIO/base"
-OVERLAY="$FIXTURES/$SCENARIO/foreign-overlay"
+BASE="$SCENARIO_DIR/base"
+OVERLAY="$SCENARIO_DIR/foreign-overlay"
 FRESH="$RUN_ROOT/$SCENARIO/fresh"
 TMP="$RUN_ROOT/.prepare-tmp-$SCENARIO-$STATE"
 trap 'rm -rf "$TMP"' EXIT
@@ -60,15 +61,29 @@ fail_clean() {
   die "$@"
 }
 
+reject_fixture_unsafe_entries() {
+  local found
+  found=$(find "$1" -type l -print -quit)
+  [ -z "$found" ] || fail_clean "fixture tree contains a forbidden symbolic link: $found"
+  found=$(find "$1" -name .git -print -quit)
+  [ -z "$found" ] || fail_clean "fixture tree contains a forbidden .git entry: $found"
+}
+
+verify_repo_pointer() {
+  [ -f "$WORKSPACE/.git" ] && [ ! -L "$WORKSPACE/.git" ] || fail_clean "workspace/.git is not a regular pointer file"
+  [ -f "$GIT_DIR/HEAD" ] || fail_clean "git-data/HEAD is missing"
+  local expected_top actual_top expected_git actual_git
+  expected_top=$(cd "$WORKSPACE" && pwd -P)
+  actual_top=$(fgit rev-parse --show-toplevel)
+  [ "$actual_top" = "$expected_top" ] || fail_clean "fixture repository resolves to $actual_top"
+  expected_git=$(cd "$GIT_DIR" && pwd -P)
+  actual_git=$(fgit rev-parse --absolute-git-dir)
+  [ "$actual_git" = "$expected_git" ] || fail_clean "fixture Git directory resolves to $actual_git"
+}
+
 init_repo_with_baseline() {
   git init --quiet --template= --separate-git-dir="$GIT_DIR" "$WORKSPACE" || die "git init failed; cell left as is"
-
-  [ -f "$WORKSPACE/.git" ] || die "workspace/.git is not a pointer file"
-  [ -f "$GIT_DIR/HEAD" ] || die "git-data/HEAD is missing"
-  local expected actual
-  expected=$(cd "$WORKSPACE" && pwd -P)
-  actual=$(fgit rev-parse --show-toplevel)
-  [ "$actual" = "$expected" ] || die "fixture repository resolves to $actual"
+  verify_repo_pointer
 
   fgit add -A
   fgit commit --quiet -m "Fixture baseline" || die "baseline commit failed (is a Git identity configured?)"
@@ -101,14 +116,13 @@ sys.exit(0 if d.get("verdict") == "pass" else 1)' "$FRESH/result.json" || die "t
   rm -rf "$TMP"
   mkdir -p "$TMP"
   python3 -I -c 'import json,sys
-m = json.load(open(sys.argv[1]))
-s = [x for x in m["scenarios"] if x["id"] == sys.argv[2]]
-r = s[0].get("rerunMaintainerRule") if s else None
+s = json.load(open(sys.argv[1]))
+r = s.get("rerunMaintainerRule")
 if not r or not r.get("topics") or not r.get("text"):
     sys.exit(3)
-open(sys.argv[3], "w").write("\n".join(t.lower() for t in r["topics"]) + "\n")
-open(sys.argv[4], "w").write(r["text"] + "\n")' "$EVAL_DIR/matrix.json" "$SCENARIO" "$TMP/topics.txt" "$TMP/rule.txt" \
-    || die "no usable rerunMaintainerRule for $SCENARIO in matrix.json"
+open(sys.argv[2], "w").write("\n".join(t.lower() for t in r["topics"]) + "\n")
+open(sys.argv[3], "w").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.txt" "$TMP/rule.txt" \
+    || die "no usable rerunMaintainerRule for $SCENARIO in scenario.json"
   local rule
   rule=$(cat "$TMP/rule.txt")
 
@@ -145,12 +159,36 @@ open(sys.argv[4], "w").write(r["text"] + "\n")' "$EVAL_DIR/matrix.json" "$SCENAR
   rm -f "$WORKSPACE/.git"
   init_repo_with_baseline
 
+  local review_changed
+  review_changed=$(python3 -I -c 'import datetime,re,sys
+p = sys.argv[1]
+text = open(p).read()
+today = datetime.datetime.now(datetime.timezone.utc).date()
+m = re.search(r"(?m)^Last reviewed: (\d{4}-\d{2}-\d{2})$", text)
+if not m:
+    sys.exit(2)
+try:
+    reviewed = datetime.date.fromisoformat(m.group(1))
+except ValueError:
+    sys.exit(2)
+if reviewed > today:
+    sys.exit(3)
+if reviewed == today:
+    print(0)
+else:
+    text = text[:m.start(1)] + today.isoformat() + text[m.end(1):]
+    open(p, "w").write(text)
+    print(1)' "$WORKSPACE/$match") || fail_clean "the rerun target file lacks a valid Last reviewed date"
   append_line "$WORKSPACE/$match" "$rule"
   local changed stat
   changed=$(fgit diff --name-only)
   [ "$changed" = "$match" ] || fail_clean "unexpected changes after appending the rule: $changed"
   stat=$(fgit diff --numstat)
-  [ "$stat" = "1"$'\t'"0"$'\t'"$match" ] || fail_clean "the rule must add exactly one line; got: $stat"
+  if [ "$review_changed" -eq 0 ]; then
+    [ "$stat" = "1"$'\t'"0"$'\t'"$match" ] || fail_clean "the rule must add exactly one line; got: $stat"
+  else
+    [ "$stat" = "2"$'\t'"1"$'\t'"$match" ] || fail_clean "the rule and review date must be the only changes; got: $stat"
+  fi
   fgit add -- "$match"
   fgit commit --quiet -m "Maintainer policy addition" || fail_clean "maintainer commit failed"
 
@@ -161,10 +199,13 @@ if [ "$STATE" = "rerun" ]; then
   prepare_rerun
 else
   mkdir -p "$WORKSPACE"
+  reject_fixture_unsafe_entries "$BASE"
   copy_tree "$BASE" "$WORKSPACE"
   init_repo_with_baseline
   if [ "$STATE" = "foreign" ]; then
+    reject_fixture_unsafe_entries "$OVERLAY"
     copy_tree "$OVERLAY" "$WORKSPACE"
+    verify_repo_pointer
     mkdir -p "$CELL/pre-run-copies"
     cp -R "$OVERLAY/." "$CELL/pre-run-copies/"
   fi
@@ -177,7 +218,24 @@ fgit rev-parse HEAD > "$CELL/pre-head.txt"
 fgit status --porcelain=v2 --untracked-files=all > "$CELL/pre-status.txt"
 fgit diff --name-only --cached > "$CELL/pre-staged.txt"
 fgit diff --name-only > "$CELL/pre-unstaged.txt"
+fgit ls-files --stage -v > "$CELL/pre-index.txt"
+cp "$GIT_DIR/config" "$CELL/pre-git-config"
+if [ -f "$GIT_DIR/config.worktree" ]; then
+  cp "$GIT_DIR/config.worktree" "$CELL/pre-git-config-worktree"
+else
+  : > "$CELL/pre-git-config-worktree.absent"
+fi
+if [ -f "$GIT_DIR/info/attributes" ]; then
+  cp "$GIT_DIR/info/attributes" "$CELL/pre-git-info-attributes"
+else
+  : > "$CELL/pre-git-info-attributes.absent"
+fi
 (cd "$WORKSPACE" && find . -path ./.git -prune -o -type f -print | sort) > "$CELL/initial-files.txt"
+mkdir -p "$CELL/workflow-reviews" "$CELL/staging"
+mkdir -p "$CELL/initial-workspace"
+copy_tree "$WORKSPACE" "$CELL/initial-workspace"
+rm -f "$CELL/initial-workspace/.git"
+write_tree_manifest "$CELL/initial-workspace" "$CELL/pre-initial-workspace-manifest.txt"
 
 echo "prepared $SCENARIO/$STATE in $1"
 echo "head: $(cat "$CELL/pre-head.txt")"
