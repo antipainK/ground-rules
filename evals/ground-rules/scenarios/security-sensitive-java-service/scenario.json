@@ -2,7 +2,7 @@
   "id": "security-sensitive-java-service",
   "persona": "Security-conscious Spring maintainer using Maven, Checkstyle, SpotBugs, integration tests, and shared Claude settings.",
   "foreignRunChoice": "Migrate interactively",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "security"
     ],
@@ -19,7 +19,7 @@
     "pom.xml",
     "application.properties.example"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "structure": "Focused files",
     "approvedFiles": [
       ".ai/security.md"

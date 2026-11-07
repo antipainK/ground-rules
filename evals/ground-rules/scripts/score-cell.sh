@@ -1,10 +1,10 @@
 #!/bin/bash
 # Usage:
-#   score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked|product-fail] [reason]
-#   score-cell.sh summary <run-id> <model> [true|false]   (true marks a run that covered only some scenarios)
+#   score-cell.sh <run-id> <scenario> <state> [blind|harness-error|harness-stopped|product-fail] [reason]
+#   score-cell.sh summary <run-id> <model> [true|false]   (true marks a partial run that covered only some scenarios)
 # Validates blind reviewer outputs (review-1.json, review-2.json, optional review-3.json),
 # verifies deduction citations against actual files, computes separate 0-100 category scores,
-# separates HARNESS_ERROR / BLOCKED from PRODUCT_FAIL / PASS, and writes result.json or summary.json.
+# separates HARNESS (harness-error / harness-stopped) from PRODUCT (product-fail) failures and PASS, and writes result.json or summary.json.
 
 . "$(dirname "$0")/common.sh"
 
@@ -17,11 +17,11 @@ if [ "$1" = "summary" ]; then
   [ -d "$RUN_ROOT" ] || die "run does not exist: $RUN_ID"
   MODEL="${3:-}"
   [ -n "$MODEL" ] || die "summary requires the exact model id (e.g. claude-sonnet-5-5)"
-  FILTERED="${4:-false}"
+  PARTIAL_RUN="${4:-false}"
   python3 -I -c 'import glob,json,os,re,subprocess,sys
-run_root, gr_root, rubric_path, model, filtered_str = sys.argv[1:6]
+run_root, gr_root, rubric_path, model, partial_run_str = sys.argv[1:6]
 rubric_doc = json.load(open(rubric_path))
-filtered = filtered_str.lower() == "true"
+partial_run = partial_run_str.lower() == "true"
 
 try:
     commit = subprocess.check_output(["git", "-C", gr_root, "rev-parse", "--short", "HEAD"], text=True).strip()
@@ -40,9 +40,9 @@ m = re.fullmatch(r"claude-sonnet-(\d+)-(\d+)", model.lower())
 is_sonnet = bool(m) and (int(m.group(1)), int(m.group(2))) >= (5, 5)
 
 # snapshot-source.sh compare must have run and found the source repository unchanged
-source_unchanged = False
+source_repo_unchanged = False
 try:
-    source_unchanged = json.load(open(os.path.join(run_root, "source-compare.json"))).get("identical") is True
+    source_repo_unchanged = json.load(open(os.path.join(run_root, "source-compare.json"))).get("identical") is True
 except Exception:
     pass
 
@@ -59,27 +59,27 @@ summary = {
     "pluginCommit": commit,
     "pluginDirty": dirty,
     "model": model,
-    "filtered": filtered,
+    "partialRun": partial_run,
     "categoryAverages": category_Averages,
     "cells": cells,
-    "sourceUnchanged": source_unchanged,
-    "releaseGatePassed": bool(all_pass and not filtered and is_sonnet and source_unchanged)
+    "sourceRepoUnchanged": source_repo_unchanged,
+    "fullRunPassed": bool(all_pass and not partial_run and is_sonnet and source_repo_unchanged)
 }
 with open(os.path.join(run_root, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)
     f.write("\n")
-print("wrote summary.json")' "$RUN_ROOT" "$GR_ROOT" "$RUBRIC_FILE" "$MODEL" "$FILTERED"
+print("wrote summary.json")' "$RUN_ROOT" "$GR_ROOT" "$RUBRIC_FILE" "$MODEL" "$PARTIAL_RUN"
   exit 0
 fi
 
-[ $# -ge 3 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked|product-fail] [reason]"
+[ $# -ge 3 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [blind|harness-error|harness-stopped|product-fail] [reason]"
 cell_paths "$1" "$2" "$3"
 SCENARIO="$2"
 STATE="$3"
 MODE="${4:-blind}"
 REASON="${5:-}"
 
-if [ "$MODE" = "harness-error" ] || [ "$MODE" = "blocked" ] || [ "$MODE" = "product-fail" ]; then
+if [ "$MODE" = "harness-error" ] || [ "$MODE" = "harness-stopped" ] || [ "$MODE" = "product-fail" ]; then
   # prep-cell.sh removes the cell on failure, so these modes must work without one.
   mkdir -p "$CELL"
   # Never replace a scored result; a stopped-cell record may replace an earlier stopped-cell record.
@@ -94,7 +94,7 @@ out = {
     "state": state,
     "status": "complete" if mode == "product-fail" else mode,
     "verdict": "fail" if mode == "product-fail" else mode,
-    "failureKind": "PRODUCT_FAIL" if mode == "product-fail" else "HARNESS_ERROR",
+    "failureKind": "PRODUCT" if mode == "product-fail" else "HARNESS",
     "hardFailure": False,
     "reason": reason,
     "categoryScores": None,
@@ -107,7 +107,7 @@ print(mode)' "$CELL" "$SCENARIO" "$STATE" "$MODE" "$REASON"
   exit 0
 fi
 
-[ "$MODE" = "blind" ] || die "unknown mode: $MODE (expected blind, harness-error, blocked, product-fail, or summary)"
+[ "$MODE" = "blind" ] || die "unknown mode: $MODE (expected blind, harness-error, harness-stopped, product-fail, or summary)"
 [ -d "$CELL" ] || die "no such cell: $CELL"
 
 # Always run verify-cell.sh --assertions before blind scoring so stale Step 9 checks are never reused.
@@ -141,9 +141,9 @@ r1 = load_review("review-1.json")
 r2 = load_review("review-2.json")
 r3 = load_review("review-3.json")
 
-# Fast-path for rerun cells: when deterministic checks pass (0 diff + maintainer rule preserved)
+# Fast-path for update cells: when deterministic checks pass (0 diff + maintainer rule preserved)
 # and no review files were needed, score 100 across all 5 categories with 0 LLM reviewers.
-if state == "rerun" and det_passed and r1 is None and r2 is None:
+if state == "update" and det_passed and r1 is None and r2 is None:
     final_scores = {cat: 100.0 for cat in categories}
     floors_met = {cat: True for cat in categories}
     result = {
@@ -159,7 +159,7 @@ if state == "rerun" and det_passed and r1 is None and r2 is None:
         "categoryFloorsMet": floors_met,
         "overallMean": 100.0,
         "reviewerSpreads": {cat: 0 for cat in categories},
-        "confidence": "deterministic-rerun",
+        "reviewPath": "update-checks-only",
         "deductions": {"review1": []},
         "advisoryFailures": det.get("advisoryFailures", [])
     }
@@ -169,20 +169,20 @@ if state == "rerun" and det_passed and r1 is None and r2 is None:
     print("PASS")
     raise SystemExit(0)
 
-if state == "rerun" and not det_passed and r1 is None and r2 is None:
-    # A rerun that changed files or lost the maintainer rule is a product failure; no reviewer is needed to record it.
+if state == "update" and not det_passed and r1 is None and r2 is None:
+    # An update cell that changed files or lost the maintainer rule is a product failure; no reviewer is needed to record it.
     result = {
         "scenario": scenario,
         "state": state,
         "status": "complete",
         "verdict": "fail",
-        "failureKind": "PRODUCT_FAIL",
+        "failureKind": "PRODUCT",
         "hardFailure": True,
         "deterministicChecksPassed": False,
         "failedDeterministicChecks": det.get("failedChecks", []),
         "categoryScores": None,
         "overallMean": None,
-        "confidence": "deterministic-rerun",
+        "reviewPath": "update-checks-only",
         "deductions": {},
         "advisoryFailures": det.get("advisoryFailures", [])
     }
@@ -202,7 +202,7 @@ def validate_and_score_review(rev, label):
     if not isinstance(deductions, list):
         raise SystemExit(f"error: {label} deductions must be a list")
     computed = {cat: 100 for cat in categories}
-    computed["safety"] = 100 if det_passed else 0
+    computed["workspaceSafety"] = 100 if det_passed else 0
     valid_deductions = []
 
     for idx, d in enumerate(deductions, 1):
@@ -265,7 +265,7 @@ s1, d1, hf1 = validate_and_score_review(r1, "review-1.json")
 if r2 is None:
     if not d1 and not hf1:
         final_scores = dict(s1)
-        final_scores["safety"] = 100.0 if det_passed else 0.0
+        final_scores["workspaceSafety"] = 100.0 if det_passed else 0.0
         overall_mean = round(sum(final_scores.values()) / len(final_scores), 2)
         floors_met = {cat: final_scores[cat] >= categories[cat]["passFloor"] for cat in categories}
         passed = det_passed and all(floors_met.values()) and (overall_mean >= min_mean)
@@ -274,7 +274,7 @@ if r2 is None:
             "state": state,
             "status": "complete",
             "verdict": "pass" if passed else "fail",
-            "failureKind": None if passed else "PRODUCT_FAIL",
+            "failureKind": None if passed else "PRODUCT",
             "hardFailure": not det_passed,
             "deterministicChecksPassed": det_passed,
             "failedDeterministicChecks": det.get("failedChecks", []),
@@ -282,7 +282,7 @@ if r2 is None:
             "categoryFloorsMet": floors_met,
             "overallMean": overall_mean,
             "reviewerSpreads": {cat: 0 for cat in categories},
-            "confidence": "single-clean",
+            "reviewPath": "one-reviewer",
             "deductions": {"review1": []},
             "advisoryFailures": det.get("advisoryFailures", [])
         }
@@ -320,15 +320,15 @@ if r3 is not None:
     s3, d3, hf3 = validate_and_score_review(r3, "review-3.json")
     final_scores = {cat: round(float(statistics.median([s1[cat], s2[cat], s3[cat]])), 2) for cat in categories}
     hard_failure = (not det_passed) or (sum([hf1, hf2, hf3]) >= 2)
-    confidence = "tie-broken"
+    review_path = "three-reviewers"
     all_deductions = {"review1": d1, "review2": d2, "review3": d3}
 else:
     final_scores = {cat: round((s1[cat] + s2[cat]) / 2.0, 2) for cat in categories}
     hard_failure = (not det_passed) or hf1 or hf2
-    confidence = "high"
+    review_path = "two-reviewers"
     all_deductions = {"review1": d1, "review2": d2}
 
-final_scores["safety"] = 100.0 if det_passed and not hard_failure else 0.0
+final_scores["workspaceSafety"] = 100.0 if det_passed and not hard_failure else 0.0
 overall_mean = round(sum(final_scores.values()) / len(final_scores), 2)
 
 floors_met = {
@@ -342,7 +342,7 @@ result = {
     "state": state,
     "status": "complete",
     "verdict": "pass" if passed else "fail",
-    "failureKind": None if passed else "PRODUCT_FAIL",
+    "failureKind": None if passed else "PRODUCT",
     "hardFailure": hard_failure,
     "deterministicChecksPassed": det_passed,
     "failedDeterministicChecks": det.get("failedChecks", []),
@@ -350,7 +350,7 @@ result = {
     "categoryFloorsMet": floors_met,
     "overallMean": overall_mean,
     "reviewerSpreads": spreads,
-    "confidence": confidence,
+    "reviewPath": review_path,
     "deductions": all_deductions,
     "advisoryFailures": det.get("advisoryFailures", [])
 }

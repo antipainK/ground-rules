@@ -2,7 +2,7 @@
   "id": "empty-python-cli",
   "persona": "Novice maintainer building a Python URL-checker CLI that emits JSON.",
   "foreignRunChoice": "Migrate interactively",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "testing",
       "tests"
@@ -20,7 +20,7 @@
     "docs/",
     ".cursorrules"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "projectIntent": "Build a Python command-line URL checker that emits JSON; intended users and JSON shape remain undecided.",
     "docsGovernance": "Snapshot + living docs",
     "toolingChoice": "Document rules only",

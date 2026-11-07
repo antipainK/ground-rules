@@ -225,12 +225,12 @@ else
 fi
 row "complete changed path list" PASS "$([ -s "$TMP/changed.txt" ] && joined < "$TMP/changed.txt" || echo "-")"
 
-# 4b. rerun cells: no diff at all, and the maintainer rule survives byte for byte
-if [ "$STATE" = "rerun" ]; then
+# 4b. update cells: no diff at all, and the maintainer rule survives byte for byte
+if [ "$STATE" = "update" ]; then
   if [ -s "$TMP/changed.txt" ]; then
-    row "rerun produced no diff" FAIL "$(joined < "$TMP/changed.txt")"
+    row "update produced no diff" FAIL "$(joined < "$TMP/changed.txt")"
   else
-    row "rerun produced no diff" PASS "-"
+    row "update produced no diff" PASS "-"
   fi
   # A missing maintainer-rule.txt must become a FAIL row, not abort the script under set -e.
   RULE_PATH=$(sed -n 1p "$CELL/maintainer-rule.txt" 2> /dev/null || true)

@@ -2,7 +2,7 @@
   "id": "polyglot-monorepo",
   "persona": "Platform lead maintaining a pnpm TypeScript frontend/API, Go worker, and Python data tool.",
   "foreignRunChoice": "Full re-audit",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "architecture"
     ],
@@ -15,7 +15,7 @@
     "workers/events/AGENTS.md",
     "GEMINI.md"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "structure": "Focused files",
     "approvedFiles": [
       ".ai/architecture.md"

@@ -61,10 +61,10 @@ no_cell() {
   if [ ! -e "$RESULTS/$TEST_RUN2/$2/$3" ]; then pass "$1"; else fail "$1" "a cell was left behind: $2/$3"; fi
 }
 
-# Prints the rerun rule text, or the first topic, for a scenario from scenarios/<id>/scenario.json.
+# Prints the update rule text, or the first topic, for a scenario from scenarios/<id>/scenario.json.
 scenario_rule() {
   python3 -I -c 'import json,sys
-r = json.load(open(sys.argv[1]))["rerunMaintainerRule"]
+r = json.load(open(sys.argv[1]))["updateMaintainerRule"]
 print(r["text"] if sys.argv[2] == "text" else r["topics"][0])' "$SCENARIOS/$1/scenario.json" "$2"
 }
 
@@ -366,25 +366,25 @@ sys.exit(0 if d["passed"] is True and d["safetyScore"] == 100 and d["failedCheck
   chmod 755 "$CELL/initial-workspace/README.md"
   expect_fail T120-initial-mode "prepared initial workspace changed" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
   chmod 644 "$CELL/initial-workspace/README.md"
-  expect_fail T50-noauth "authorization.json is missing" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
-  cat > "$CELL/authorization.json" <<'JSON'
+  expect_fail T50-noauth "maintainer-answers.json is missing" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
+  cat > "$CELL/maintainer-answers.json" <<'JSON'
 [{"questionIndex":1,"question":{"text":"Apply docs?","options":[{"text":"Apply","affectedPaths":["docs/note.md"],"draftFiles":[{"path":"docs/note.md","content":"# note\n"}]},{"text":"Skip","affectedPaths":[],"draftFiles":[]}]},"selectedOptions":["Apply"],"freeText":null,"authorizedBy":["matrix decision"]},{"authorizedBy":["matrix decision"],"freeText":null,"selectedOptions":["Apply"],"question":{"options":[{"affectedPaths":["docs/note.md"],"draftFiles":[{"content":"# note\n","path":"docs/note.md"}],"text":"Apply"},{"affectedPaths":[],"draftFiles":[],"text":"Skip"}],"text":"Apply docs?"},"questionIndex":1}]
 JSON
-  expect_fail T50-nolog "authorization.ndjson is missing" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
-  cat > "$CELL/authorization.ndjson" <<'NDJSON'
+  expect_fail T50-nolog "maintainer-answers.ndjson is missing" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
+  cat > "$CELL/maintainer-answers.ndjson" <<'NDJSON'
 {"questionIndex":1,"question":{"text":"Apply docs?","options":[{"text":"Apply","affectedPaths":["docs/note.md"],"draftFiles":[{"path":"docs/note.md","content":"# note\n"}]},{"text":"Skip","affectedPaths":[],"draftFiles":[]}]},"selectedOptions":["Apply"],"freeText":null,"authorizedBy":["matrix decision"]}
 {"questionIndex":1,"question":{"text":"Apply docs?","options":[{"text":"Apply","affectedPaths":["docs/note.md"],"draftFiles":[{"path":"docs/note.md","content":"# note\n"}]},{"text":"Skip","affectedPaths":[],"draftFiles":[]}]},"selectedOptions":["Apply"],"freeText":null,"authorizedBy":["matrix decision"]}
 {"authorizedBy":["matrix decision"],"freeText":null,"selectedOptions":["Apply"],"question":{"options":[{"affectedPaths":["docs/note.md"],"draftFiles":[{"content":"# note\n","path":"docs/note.md"}],"text":"Apply"},{"affectedPaths":[],"draftFiles":[],"text":"Skip"}],"text":"Apply docs?"},"questionIndex":1}
 NDJSON
   expect_fail T50-nodecision "decision-record.json is missing" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
   printf '[{"id":"D1","wording":"approved"}]\n' > "$CELL/decision-record.json"
-  cp "$CELL/authorization.json" "$CELL/authorization.backup"
-  printf '[]\n' > "$CELL/authorization.json"
+  cp "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.backup"
+  printf '[]\n' > "$CELL/maintainer-answers.json"
   expect_fail T50-auth-mismatch "does not match the complete deduplicated" "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
-  mv "$CELL/authorization.backup" "$CELL/authorization.json"
+  mv "$CELL/maintainer-answers.backup" "$CELL/maintainer-answers.json"
   expect_ok T50-run "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN" empty-python-cli fresh
   BLIND_FILES=$(ls -A "$CELL/blind-input" | sort | tr '\n' ' ')
-  if [ "$BLIND_FILES" = "authorization.json changed-paths.txt decision-record.json rubric.json " ]; then pass T50-files; else fail T50-files "unexpected contents: $BLIND_FILES"; fi
+  if [ "$BLIND_FILES" = "changed-paths.txt decision-record.json maintainer-answers.json rubric.json " ]; then pass T50-files; else fail T50-files "unexpected contents: $BLIND_FILES"; fi
   if ls -A "$CELL" | grep -Fq '.blind-'; then fail T50-clean "temporary folders were left behind"; else pass T50-clean; fi
   if python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
@@ -429,29 +429,29 @@ TURN
   printf '%s\n' '{"status":"answered","answers":[{"questionIndex":1,"selectedOptions":["Bogus"],"freeText":null,"authorizedBy":["matrix"]}]}' > "$CELL/staging/persona-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
   if echo "$OUT" | grep -Fxq "RETRY_PERSONA_FORMAT"; then pass T22-persona-bad-option; else fail T22-persona-bad-option "$OUT"; fi
-  AUTH_BEFORE=$(wc -l < "$CELL/authorization.ndjson")
+  AUTH_BEFORE=$(wc -l < "$CELL/maintainer-answers.ndjson")
   printf '%s\n' '{"status":"answered","answers":[{"questionIndex":1,"selectedOptions":["Skip"],"freeText":null,"authorizedBy":["matrix"]}]}' > "$CELL/staging/persona-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
-  AUTH_AFTER=$(wc -l < "$CELL/authorization.ndjson")
-  if echo "$OUT" | grep -Fxq "RESUME_TARGET" && [ "$AUTH_AFTER" -eq $((AUTH_BEFORE + 1)) ] && grep -Fq '"selectedOptions": ["Skip"]' "$CELL/authorization.ndjson"; then
+  AUTH_AFTER=$(wc -l < "$CELL/maintainer-answers.ndjson")
+  if echo "$OUT" | grep -Fxq "RESUME_TARGET" && [ "$AUTH_AFTER" -eq $((AUTH_BEFORE + 1)) ] && grep -Fq '"selectedOptions": ["Skip"]' "$CELL/maintainer-answers.ndjson"; then
     pass T22-persona-answered
   else
     fail T22-persona-answered "out=$OUT before=$AUTH_BEFORE after=$AUTH_AFTER"
   fi
   printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$CELL/staging/persona-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
-  if echo "$OUT" | grep -Fxq "CELL_BLOCKED" && grep -Fq '"failureKind": "HARNESS_ERROR"' "$CELL/staging/next-step.json"; then pass T22-persona-unresolved-fresh; else fail T22-persona-unresolved-fresh "$OUT"; fi
-  # In rerun, an unresolved persona answer means the target re-interviewed the maintainer: PRODUCT_FAIL
-  RERUN_STUB="$RESULTS/$TEST_RUN/empty-python-cli/rerun"
-  if [ -e "$RERUN_STUB" ]; then
-    skip T22-persona-unresolved-rerun "unexpected existing cell $RERUN_STUB"
+  if echo "$OUT" | grep -Fxq "CELL_STOPPED" && grep -Fq '"failureKind": "HARNESS"' "$CELL/staging/next-step.json"; then pass T22-persona-unresolved-fresh; else fail T22-persona-unresolved-fresh "$OUT"; fi
+  # In update, an unresolved persona answer means the target re-interviewed the maintainer: PRODUCT
+  UPDATE_STUB="$RESULTS/$TEST_RUN/empty-python-cli/update"
+  if [ -e "$UPDATE_STUB" ]; then
+    skip T22-persona-unresolved-update "unexpected existing cell $UPDATE_STUB"
   else
-    mkdir -p "$RERUN_STUB/staging"
-    cp "$CELL/staging/last-target-turn.json" "$RERUN_STUB/staging/last-target-turn.json"
-    printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$RERUN_STUB/staging/persona-turn.txt"
-    run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli rerun persona
-    if echo "$OUT" | grep -Fxq "CELL_BLOCKED" && grep -Fq '"failureKind": "PRODUCT_FAIL"' "$RERUN_STUB/staging/next-step.json"; then pass T22-persona-unresolved-rerun; else fail T22-persona-unresolved-rerun "$OUT"; fi
-    rm -rf "$RERUN_STUB"
+    mkdir -p "$UPDATE_STUB/staging"
+    cp "$CELL/staging/last-target-turn.json" "$UPDATE_STUB/staging/last-target-turn.json"
+    printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$UPDATE_STUB/staging/persona-turn.txt"
+    run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update persona
+    if echo "$OUT" | grep -Fxq "CELL_STOPPED" && grep -Fq '"failureKind": "PRODUCT"' "$UPDATE_STUB/staging/next-step.json"; then pass T22-persona-unresolved-update; else fail T22-persona-unresolved-update "$OUT"; fi
+    rm -rf "$UPDATE_STUB"
   fi
   cp "$CELL/staging/persona-test-turn.json" "$CELL/staging/last-target-turn.json"
   rm -f "$CELL/staging/persona-test-turn.json"
@@ -485,7 +485,8 @@ r = json.load(open(sys.argv[1]))
 cs = r["categoryScores"]
 ok = (
   r["verdict"] == "pass"
-  and cs["safety"] == 100.0
+  and cs["workspaceSafety"] == 100.0
+  and r["reviewPath"] == "two-reviewers"
   and cs["userControlAndAuthorization"] == 100.0
   and cs["policyAndContradictionFidelity"] == 100.0
   and cs["repositoryAndArtifactAccuracy"] == 100.0
@@ -531,41 +532,41 @@ R3
   expect_ok T24-tiebreaker-resolved "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
   if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["confidence"] == "tie-broken" and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "advisoryFailures" in r and "filteredDeductions" not in r else 1)' "$CELL/result.json"; then
+sys.exit(0 if r["reviewPath"] == "three-reviewers" and "confidence" not in r and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "advisoryFailures" in r and "filteredDeductions" not in r else 1)' "$CELL/result.json"; then
     pass T24-tiebreaker-values
   else
     fail T24-tiebreaker-values "$(cat "$CELL/result.json")"
   fi
   # A completed result is never replaced by a stopped-cell record
-  expect_fail T24-no-overwrite "refusing to overwrite" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blocked "late failure"
+  expect_fail T24-no-overwrite "refusing to overwrite" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh harness-stopped "late failure"
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
   if python3 -I -c 'import json,sys
 s = json.load(open(sys.argv[1]))
-sys.exit(0 if s["model"] == "claude-sonnet-5-5" and s["filtered"] is True and s["releaseGatePassed"] is False and s["sourceUnchanged"] is False and len(s["cells"]) >= 1 else 1)' "$RESULTS/$TEST_RUN/summary.json"; then
+sys.exit(0 if s["model"] == "claude-sonnet-5-5" and s["partialRun"] is True and s["fullRunPassed"] is False and s["sourceRepoUnchanged"] is False and not any(k in s for k in ("filtered", "releaseGatePassed", "sourceUnchanged")) and len(s["cells"]) >= 1 else 1)' "$RESULTS/$TEST_RUN/summary.json"; then
     pass T24-summary-values
   else
     fail T24-summary-values "$(cat "$RESULTS/$TEST_RUN/summary.json")"
   fi
   expect_fail T24-summary-needs-model "requires the exact model id" "$SCRIPTS/score-cell.sh" summary "$TEST_RUN"
 
-  # blocked / harness-error must record a result even when prep-cell.sh already removed the cell
+  # harness-stopped / harness-error must record a result even when prep-cell.sh already removed the cell
   GONE="$RESULTS/$TEST_RUN/polyglot-monorepo/fresh"
   if [ -e "$GONE" ]; then
-    skip T24-blocked-no-cell "unexpected existing cell $GONE"
+    skip T24-stopped-no-cell "unexpected existing cell $GONE"
   else
-    expect_ok T24-blocked-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh blocked "prep failed"
+    expect_ok T24-stopped-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh harness-stopped "prep failed"
     if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["verdict"] == "blocked" and r["reason"] == "prep failed" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
-      pass T24-blocked-values
+sys.exit(0 if r["verdict"] == "harness-stopped" and r["failureKind"] == "HARNESS" and r["reason"] == "prep failed" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
+      pass T24-stopped-values
     else
-      fail T24-blocked-values "$(cat "$GONE/result.json" 2>&1)"
+      fail T24-stopped-values "$(cat "$GONE/result.json" 2>&1)"
     fi
     rm -rf "$GONE"
     expect_ok T24-product-fail-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh product-fail "asked a rule question"
     if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["verdict"] == "fail" and r["failureKind"] == "PRODUCT_FAIL" and r["reason"] == "asked a rule question" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
+sys.exit(0 if r["verdict"] == "fail" and r["failureKind"] == "PRODUCT" and r["reason"] == "asked a rule question" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
       pass T24-product-fail-values
     else
       fail T24-product-fail-values "$(cat "$GONE/result.json" 2>&1)"
@@ -597,9 +598,9 @@ ok = rubric.get("schemaVersion") == 4 and len(rubric.get("rubric", {}).get("cate
 problems = [] if ok else ["rubric schemaVersion != 4 or categories != 5"]
 for p in sorted(glob.glob(sys.argv[2] + "/*/scenario.json")):
     s = json.load(open(p))
-    r = s.get("rerunMaintainerRule")
+    r = s.get("updateMaintainerRule")
     if not r:
-        problems.append(s["id"] + ": no rerunMaintainerRule")
+        problems.append(s["id"] + ": no updateMaintainerRule")
         continue
     t = r.get("topics")
     if not t or not all(isinstance(x, str) and re.match(r"^[a-z0-9-]+$", x) for x in t):
@@ -686,39 +687,41 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
   mv "$WORKSPACE/docs/architecture-final.md" "$WORKSPACE/docs/Architecture FINAL.MD"
   expect2_pass T68-rename-undo legacy-node-service fresh
 
-  # T70 to T82 rerun preparation on empty-python-cli
+  # T70 to T82 update preparation on empty-python-cli
+  expect_fail T70-old-state "invalid state" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
+  no_cell T70-old-state-nocell empty-python-cli rerun
   expect_ok T70-setup "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli fresh
   cell_paths "$TEST_RUN2" empty-python-cli fresh
   FRESH2="$CELL"
-  expect_fail T70 "has not passed" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T70-nocell empty-python-cli rerun
+  expect_fail T70 "has not passed" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T70-nocell empty-python-cli update
   printf '{"verdict": "fail"}\n' > "$FRESH2/result.json"
-  expect_fail T71 "has not passed" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T71-nocell empty-python-cli rerun
+  expect_fail T71 "has not passed" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T71-nocell empty-python-cli update
   printf '{"verdict": "pass"}\n' > "$FRESH2/result.json"
 
-  expect_fail T82 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T82-nocell empty-python-cli rerun
+  expect_fail T82 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T82-nocell empty-python-cli update
 
   mkdir -p "$WORKSPACE/.ai"
   printf '# Other\n\n- x. Project decision\n' > "$WORKSPACE/.ai/other.md"
-  expect_fail T79 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T79-nocell empty-python-cli rerun
+  expect_fail T79 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T79-nocell empty-python-cli update
 
   printf '# Testing\n\nLast reviewed: %s\n\n- a. Project decision\n' "$(date -u +%F)" > "$WORKSPACE/.ai/testing.md"
   printf '# Tests\n\n- b. Project decision\n' > "$WORKSPACE/.ai/tests.md"
-  expect_fail T78 "ambiguous" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T78-nocell empty-python-cli rerun
+  expect_fail T78 "ambiguous" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T78-nocell empty-python-cli update
   rm "$WORKSPACE/.ai/tests.md"
 
   RULE=$(scenario_rule empty-python-cli text)
   printf '%s\n' "$RULE" >> "$WORKSPACE/.ai/testing.md"
-  expect_fail T80 "already present" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  no_cell T80-nocell empty-python-cli rerun
+  expect_fail T80 "already present" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  no_cell T80-nocell empty-python-cli update
   printf '# Testing\n\nLast reviewed: %s\n\n- a. Project decision\n' "$(date -u +%F)" > "$WORKSPACE/.ai/testing.md"
 
-  expect_ok T72-run "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli rerun
-  cell_paths "$TEST_RUN2" empty-python-cli rerun
+  expect_ok T72-run "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
+  cell_paths "$TEST_RUN2" empty-python-cli update
   SUBJECTS=$(fgit log --format=%s | tr '\n' '|')
   if [ "$SUBJECTS" = "Maintainer policy addition|Fixture baseline|" ] && [ -z "$(fgit status --porcelain=v2 --untracked-files=all)" ] \
     && [ -f "$WORKSPACE/.git" ] && [ "$(grep -Fxc -e "$RULE" "$WORKSPACE/.ai/testing.md")" = "1" ]; then
@@ -727,30 +730,31 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
     fail T72 "commits: $SUBJECTS"
   fi
 
-  check2 empty-python-cli rerun
-  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "rerun produced no diff" | grep -Fq PASS && echo "$OUT" | grep -F "maintainer rule preserved" | grep -Fq PASS; then pass T74; else fail T74 "$OUT"; fi
+  check2 empty-python-cli update
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "update produced no diff" | grep -Fq PASS && echo "$OUT" | grep -F "maintainer rule preserved" | grep -Fq PASS; then pass T74; else fail T74 "$OUT"; fi
 
   # A missing maintainer-rule record is a FAIL row, not an aborted script
   mv "$CELL/maintainer-rule.txt" "$CELL/maintainer-rule.saved"
-  expect2_fail T74-rule-record-missing empty-python-cli rerun "maintainer rule preserved"
+  expect2_fail T74-rule-record-missing empty-python-cli update "maintainer rule preserved"
   mv "$CELL/maintainer-rule.saved" "$CELL/maintainer-rule.txt"
 
-  # T74b a rerun that changed files fails a hard check and is a recorded PRODUCT_FAIL, with no reviewer files.
-  # (The stub rerun also lacks the scenario artifacts; that is only an advisory failure.)
+  # T74b an update cell that changed files fails a hard check and is a recorded PRODUCT failure, with no reviewer files.
+  # (The stub update cell also lacks the scenario artifacts; that is only an advisory failure.)
   mkdir -p "$WORKSPACE/docs"
-  printf 'extra\n' > "$WORKSPACE/docs/rerun-extra.md"
-  run "$SCRIPTS/score-cell.sh" "$TEST_RUN2" empty-python-cli rerun blind
+  printf 'extra\n' > "$WORKSPACE/docs/update-extra.md"
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN2" empty-python-cli update blind
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "FAIL" \
-    && grep -Fq '"failureKind": "PRODUCT_FAIL"' "$CELL/result.json" \
+    && grep -Fq '"failureKind": "PRODUCT"' "$CELL/result.json" \
     && grep -Fq '"hardFailure": true' "$CELL/result.json" \
-    && grep -Fq 'rerun produced no diff' "$CELL/result.json"; then
-    pass T74-rerun-score-fail
+    && grep -Fq '"reviewPath": "update-checks-only"' "$CELL/result.json" \
+    && grep -Fq 'update produced no diff' "$CELL/result.json"; then
+    pass T74-update-score-fail
   else
-    fail T74-rerun-score-fail "rc=$RC out=$OUT"
+    fail T74-update-score-fail "rc=$RC out=$OUT"
   fi
-  rm -f "$WORKSPACE/docs/rerun-extra.md" "$CELL/result.json"
+  rm -f "$WORKSPACE/docs/update-extra.md" "$CELL/result.json"
 
-  # T83 and T84 every scenario prepares cleanly in each state, and every rerun rule resolves
+  # T83 and T84 every scenario prepares cleanly in each state, and every update rule resolves
   expect_ok T83-setup "$SCRIPTS/init-run.sh" "$TEST_RUN3"
   for d in "$SCENARIOS"/*/; do
     s=$(basename "$d")
@@ -774,10 +778,10 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
     printf '{"verdict": "pass"}\n' > "$CELL/result.json"
     mkdir -p "$WORKSPACE/.ai"
     printf '# %s\n\nLast reviewed: %s\n\n- Existing rule. Project decision\n' "$TOPIC" "$(date -u +%F)" > "$WORKSPACE/.ai/$TOPIC.md"
-    run "$SCRIPTS/prep-cell.sh" "$TEST_RUN3" "$s" rerun
-    if [ "$RC" -ne 0 ]; then fail "T84-$s" "rerun prepare failed: $OUT"; continue; fi
-    cell_paths "$TEST_RUN3" "$s" rerun
-    run "$SCRIPTS/verify-cell.sh" "$TEST_RUN3" "$s" rerun
+    run "$SCRIPTS/prep-cell.sh" "$TEST_RUN3" "$s" update
+    if [ "$RC" -ne 0 ]; then fail "T84-$s" "update prepare failed: $OUT"; continue; fi
+    cell_paths "$TEST_RUN3" "$s" update
+    run "$SCRIPTS/verify-cell.sh" "$TEST_RUN3" "$s" update
     if [ "$RC" -eq 0 ] && [ "$(grep -Fxc -e "$RULE_S" "$WORKSPACE/.ai/$TOPIC.md")" = "1" ]; then pass "T84-$s"; else fail "T84-$s" "$OUT"; fi
   done
 }
@@ -843,7 +847,7 @@ sys.exit(1 if problems else 0)' "$SETTINGS"
 eval_dir = pathlib.Path(sys.argv[1])
 rubric = json.loads((eval_dir / "rubric.json").read_text())
 cats = rubric["rubric"]["categories"]
-expected_cats = {"safety", "userControlAndAuthorization", "policyAndContradictionFidelity", "repositoryAndArtifactAccuracy", "maintainabilityAndDocsHygiene"}
+expected_cats = {"workspaceSafety", "userControlAndAuthorization", "policyAndContradictionFidelity", "repositoryAndArtifactAccuracy", "maintainabilityAndDocsHygiene"}
 assert set(cats.keys()) == expected_cats, f"categories mismatch: {set(cats.keys())}"
 scenarios = sorted(p.parent.name for p in (eval_dir / "scenarios").glob("*/scenario.json"))
 assert len(scenarios) == 6, f"expected 6 scenarios, got {scenarios}"
@@ -853,11 +857,25 @@ for s in scenarios:
     assert f"evals/ground-rules/scenarios/{s}/scenario.json" in skill_txt, f"SKILL.md lacks explicit path for {s}"
     sdoc = json.loads((eval_dir / "scenarios" / s / "scenario.json").read_text())
     assert sdoc["id"] == s
-    assert "policySpec" in sdoc and "artifactAssertions" in sdoc and "decisions" in sdoc
+    assert "approvedPolicy" in sdoc and "artifactAssertions" in sdoc and "decisions" in sdoc
+    assert "updateMaintainerRule" in sdoc and "policySpec" not in sdoc and "rerunMaintainerRule" not in sdoc
     assert (eval_dir / "scenarios" / s / "base").is_dir()
     assert (eval_dir / "scenarios" / s / "foreign-overlay").is_dir()
 print("ok")' "$EVAL_DIR" "$SKILL"
   if [ "$RC" -eq 0 ]; then pass T110-scenarios-and-rubric; else fail T110-scenarios-and-rubric "$OUT"; fi
+
+  # T111 the README keeps the sections that explain the vocabulary (headings only, not wording)
+  MISSING=""
+  for h in "## Roles" "A **cell** is one" '### `score-cell.sh` exit codes' "### Failure outcomes" "### Records"; do
+    grep -Fq -- "$h" "$README" || MISSING="$MISSING [$h]"
+  done
+  if [ -z "$MISSING" ]; then pass T111-readme-vocabulary; else fail T111-readme-vocabulary "README lacks:$MISSING"; fi
+
+  # T112 no retired name is left in the eval docs, scripts, rubric, scenarios or agent definition
+  # (this file is excluded because it names them on purpose)
+  STALE=$(grep -rnE 'releaseGatePassed|sourceUnchanged|CELL_BLOCKED|single-clean|deterministic-rerun|authorization\.(nd)?json|policySpec|rerunMaintainerRule|rerunInvariants' \
+    "$README" "$SKILL" "$AGENT" "$EVAL_DIR/rubric.json" "$SCENARIOS" "$SCRIPTS"/*.sh 2> /dev/null | grep -v "/test-eval.sh:" | head -3)
+  if [ -z "$STALE" ]; then pass T112-no-retired-names; else fail T112-no-retired-names "$STALE"; fi
 }
 
 if [ "$GROUP" != "config" ]; then

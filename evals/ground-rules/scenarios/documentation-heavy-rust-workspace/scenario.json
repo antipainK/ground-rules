@@ -2,7 +2,7 @@
   "id": "documentation-heavy-rust-workspace",
   "persona": "Documentation curator maintaining a Cargo workspace with living docs, snapshots, and todo files.",
   "foreignRunChoice": "Migrate interactively",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "code-style",
       "style",
@@ -22,7 +22,7 @@
     "clippy.toml",
     ".cargo/"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "docsGovernance": "Snapshot + living docs",
     "structure": "Focused files",
     "approvedFiles": [
