@@ -4,8 +4,9 @@ This suite measures how well the Ground Rules skill does its job, so that
 maintainers can find weak spots and improve the skill. A full run is the complete
 baseline for that work. It is not an approval step or a release gate.
 
-A full run covers six repository scenarios in three states. A **cell** is one
-scenario in one state, so a full run has 18 cells:
+A full run covers six repository scenarios in three states.
+
+A **cell** is one scenario in one state, so a full run has 18 cells. The states:
 
 1. `fresh`: no AI instruction files;
 2. `foreign`: the pristine fixture plus instructions from other tools; and
@@ -25,7 +26,7 @@ eval state for that case is `update`.
 | target | The agent (Sonnet) that runs the Ground Rules skill under test |
 | persona | A cooperative maintainer played by a cheaper model, answering from the scenario's `approvedPolicy` and `decisions` |
 | step-9 reviewer | `eval-reviewer` run on the workflow review that the skill performs in its Step 9 |
-| blind reviewer | `eval-reviewer` that scores the result from the blind input only (it does not see the persona script or the expected artifacts, so it cannot grade against the answer key) |
+| blind reviewer | `eval-reviewer` that scores the result from the workspace, the initial workspace and `blind-input/` only. It sees the maintainer's answers but not `scenario.json` (`approvedPolicy`, `artifactAssertions`), so it cannot grade against the answer key |
 | tie-breaker | A third reviewer, asked only when the first two disagree |
 
 ## Directory layout
@@ -154,6 +155,18 @@ source repository unchanged).
 | `product-fail` | The skill under test (for example it asked a maintainer question in an `update` cell) | The skill |
 
 `failureKind` in `result.json` is `HARNESS` for the first two and `PRODUCT` for the last.
+
+`step-turn.sh` reports these as actions in `next-step.json`, which the orchestrator turns into the outcomes above:
+
+| Action | Recorded as |
+|---|---|
+| `HARNESS_ERROR` (the target reported `protocol-error`) | `harness-error` |
+| `RETRY_TARGET_FORMAT` / `RETRY_PERSONA_FORMAT`, on a second failure | `harness-error` |
+| `CELL_STOPPED`, `failureKind` `HARNESS` | `harness-stopped` |
+| `CELL_STOPPED`, `failureKind` `PRODUCT` (an `update` target asked a rule question) | `product-fail` |
+
+Runs created before the `update` naming change (they contain `rerun` cells and the old
+result keys) cannot be resumed, re-scored or summarised with these scripts. Start a new run.
 
 ### Records
 

@@ -537,6 +537,16 @@ sys.exit(0 if r["reviewPath"] == "three-reviewers" and "confidence" not in r and
   else
     fail T24-tiebreaker-values "$(cat "$CELL/result.json")"
   fi
+  # One clean reviewer is enough: reviewPath is one-reviewer and the cell passes
+  rm -f "$CELL/review-2.json" "$CELL/review-3.json" "$CELL/result.json"
+  expect_ok T24-one-reviewer "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  if python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r["reviewPath"] == "one-reviewer" and r["verdict"] == "pass" and r["overallMean"] == 100.0 and r["failureKind"] is None else 1)' "$CELL/result.json"; then
+    pass T24-one-reviewer-values
+  else
+    fail T24-one-reviewer-values "$(cat "$CELL/result.json" 2>&1)"
+  fi
   # A completed result is never replaced by a stopped-cell record
   expect_fail T24-no-overwrite "refusing to overwrite" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh harness-stopped "late failure"
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
@@ -570,6 +580,15 @@ sys.exit(0 if r["verdict"] == "fail" and r["failureKind"] == "PRODUCT" and r["re
       pass T24-product-fail-values
     else
       fail T24-product-fail-values "$(cat "$GONE/result.json" 2>&1)"
+    fi
+    rm -rf "$GONE"
+    expect_ok T24-harness-error-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh harness-error "target reported protocol-error"
+    if python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r["verdict"] == "harness-error" and r["failureKind"] == "HARNESS" and r["reason"] == "target reported protocol-error" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
+      pass T24-harness-error-values
+    else
+      fail T24-harness-error-values "$(cat "$GONE/result.json" 2>&1)"
     fi
     rm -rf "$GONE"
   fi
@@ -738,6 +757,18 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
   expect2_fail T74-rule-record-missing empty-python-cli update "maintainer rule preserved"
   mv "$CELL/maintainer-rule.saved" "$CELL/maintainer-rule.txt"
 
+  # T74a a clean update cell passes from the deterministic checks alone: 100 in every category, no reviewers
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN2" empty-python-cli update blind
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "PASS" && python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+cs = r["categoryScores"]
+sys.exit(0 if r["verdict"] == "pass" and r["reviewPath"] == "update-checks-only" and r["overallMean"] == 100.0 and r["failureKind"] is None and len(cs) == 5 and all(v == 100.0 for v in cs.values()) and "workspaceSafety" in cs else 1)' "$CELL/result.json"; then
+    pass T74-update-score-pass
+  else
+    fail T74-update-score-pass "rc=$RC out=$OUT"
+  fi
+  rm -f "$CELL/result.json"
+
   # T74b an update cell that changed files fails a hard check and is a recorded PRODUCT failure, with no reviewer files.
   # (The stub update cell also lacks the scenario artifacts; that is only an advisory failure.)
   mkdir -p "$WORKSPACE/docs"
@@ -866,16 +897,23 @@ print("ok")' "$EVAL_DIR" "$SKILL"
 
   # T111 the README keeps the sections that explain the vocabulary (headings only, not wording)
   MISSING=""
-  for h in "## Roles" "A **cell** is one" '### `score-cell.sh` exit codes' "### Failure outcomes" "### Records"; do
-    grep -Fq -- "$h" "$README" || MISSING="$MISSING [$h]"
+  for h in "## Roles" '### `score-cell.sh` exit codes' "### Failure outcomes" "### Records"; do
+    grep -Fxq -- "$h" "$README" || MISSING="$MISSING [$h]"
   done
+  grep -q '^A \*\*cell\*\* is one' "$README" || MISSING="$MISSING [cell definition]"
   if [ -z "$MISSING" ]; then pass T111-readme-vocabulary; else fail T111-readme-vocabulary "README lacks:$MISSING"; fi
 
   # T112 no retired name is left in the eval docs, scripts, rubric, scenarios or agent definition
   # (this file is excluded because it names them on purpose)
-  STALE=$(grep -rnE 'releaseGatePassed|sourceUnchanged|CELL_BLOCKED|single-clean|deterministic-rerun|authorization\.(nd)?json|policySpec|rerunMaintainerRule|rerunInvariants' \
-    "$README" "$SKILL" "$AGENT" "$EVAL_DIR/rubric.json" "$SCENARIOS" "$SCRIPTS"/*.sh 2> /dev/null | grep -v "/test-eval.sh:" | head -3)
-  if [ -z "$STALE" ]; then pass T112-no-retired-names; else fail T112-no-retired-names "$STALE"; fi
+  # A missing target must fail the check, not make it pass with no output.
+  STALE_TARGETS="$README $SKILL $AGENT $EVAL_DIR/rubric.json $SCENARIOS $SCRIPTS/testdata"
+  STALE_MISSING=""
+  for t in $STALE_TARGETS; do [ -e "$t" ] || STALE_MISSING="$STALE_MISSING $t"; done
+  STALE=$(grep -rnE 'releaseGatePassed|sourceUnchanged|CELL_BLOCKED|single-clean|deterministic-rerun|authorization\.(nd)?json|pending-authorization|compile_auth_json|policySpec|rerunMaintainerRule|rerunInvariants|PRODUCT_FAIL|tie-broken|"confidence"|"filtered"|"safety"' \
+    $STALE_TARGETS "$SCRIPTS"/*.sh | grep -v "/test-eval.sh:" | head -3)
+  if [ -n "$STALE_MISSING" ]; then fail T112-no-retired-names "scan target missing:$STALE_MISSING"
+  elif [ -z "$STALE" ]; then pass T112-no-retired-names
+  else fail T112-no-retired-names "$STALE"; fi
 }
 
 if [ "$GROUP" != "config" ]; then
