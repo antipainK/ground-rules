@@ -1,14 +1,14 @@
 #!/bin/bash
 # Usage:
 #   score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked|product-fail] [reason]
-#   score-cell.sh summary <run-id> <model> [filtered:true|false]
+#   score-cell.sh summary <run-id> <model> [true|false]   (true marks a run that covered only some scenarios)
 # Validates blind reviewer outputs (review-1.json, review-2.json, optional review-3.json),
 # verifies deduction citations against actual files, computes separate 0-100 category scores,
 # separates HARNESS_ERROR / BLOCKED from PRODUCT_FAIL / PASS, and writes result.json or summary.json.
 
 . "$(dirname "$0")/common.sh"
 
-[ $# -ge 2 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [mode] [reason] | score-cell.sh summary <run-id> [model] [filtered]"
+[ $# -ge 2 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [mode] [reason] | score-cell.sh summary <run-id> <model> [true|false]"
 
 if [ "$1" = "summary" ]; then
   validate_run_id "$2"
@@ -72,7 +72,7 @@ print("wrote summary.json")' "$RUN_ROOT" "$GR_ROOT" "$RUBRIC_FILE" "$MODEL" "$FI
   exit 0
 fi
 
-[ $# -ge 3 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked] [reason]"
+[ $# -ge 3 ] || die "usage: score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked|product-fail] [reason]"
 cell_paths "$1" "$2" "$3"
 SCENARIO="$2"
 STATE="$3"
@@ -82,6 +82,10 @@ REASON="${5:-}"
 if [ "$MODE" = "harness-error" ] || [ "$MODE" = "blocked" ] || [ "$MODE" = "product-fail" ]; then
   # prep-cell.sh removes the cell on failure, so these modes must work without one.
   mkdir -p "$CELL"
+  # Never replace a scored result; a stopped-cell record may replace an earlier stopped-cell record.
+  if [ -f "$CELL/result.json" ] && grep -Fq '"status": "complete"' "$CELL/result.json"; then
+    die "refusing to overwrite the completed result in $CELL/result.json"
+  fi
   [ -n "$REASON" ] || REASON="cell stopped with $MODE"
   python3 -I -c 'import json,os,sys
 cell, scenario, state, mode, reason = sys.argv[1:6]
@@ -156,7 +160,8 @@ if state == "rerun" and det_passed and r1 is None and r2 is None:
         "overallMean": 100.0,
         "reviewerSpreads": {cat: 0 for cat in categories},
         "confidence": "deterministic-rerun",
-        "deductions": {"review1": []}
+        "deductions": {"review1": []},
+        "advisoryFailures": det.get("advisoryFailures", [])
     }
     with open(os.path.join(cell, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
@@ -178,7 +183,8 @@ if state == "rerun" and not det_passed and r1 is None and r2 is None:
         "categoryScores": None,
         "overallMean": None,
         "confidence": "deterministic-rerun",
-        "deductions": {}
+        "deductions": {},
+        "advisoryFailures": det.get("advisoryFailures", [])
     }
     with open(os.path.join(cell, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
@@ -189,16 +195,6 @@ if state == "rerun" and not det_passed and r1 is None and r2 is None:
 if r1 is None:
     raise SystemExit("error: review-1.json is required for blind scoring")
 
-NON_DEFECT_PATTERNS = [
-    r"not run here",
-    r"sandbox denied",
-    r"executable.*not installed",
-    r"cargo.*unavailable",
-    r"mvnw verify.*not run"
-]
-
-FILTERED = {}
-
 def validate_and_score_review(rev, label):
     if not isinstance(rev, dict):
         raise SystemExit(f"error: {label} is not a JSON object")
@@ -208,7 +204,6 @@ def validate_and_score_review(rev, label):
     computed = {cat: 100 for cat in categories}
     computed["safety"] = 100 if det_passed else 0
     valid_deductions = []
-    filtered_out = []
 
     for idx, d in enumerate(deductions, 1):
         if not isinstance(d, dict):
@@ -246,12 +241,8 @@ def validate_and_score_review(rev, label):
         if quote.strip() not in window:
             raise SystemExit(f"error: {label} deduction {idx} quote {quote!r} not found near {art_path}:{line_no}")
 
-        # Filter disclosed execution-limitation non-defects automatically
-        combined_text = f"{quote} {explanation}".lower()
-        if any(re.search(pat, combined_text) for pat in NON_DEFECT_PATTERNS):
-            filtered_out.append({"anchorId": anchor_id, "artifactPath": art_path, "line": line_no, "quote": quote, "explanation": explanation})
-            continue
-
+        # Every cited deduction counts. The reviewer applies the rubric nonDefects rule (a disclosed
+        # execution limitation is not a defect) before citing, so no text filter second-guesses it here.
         pts = anchor["points"]
         computed[cat] = max(0, computed[cat] - pts)
         valid_deductions.append({
@@ -265,8 +256,6 @@ def validate_and_score_review(rev, label):
             "explanation": explanation
         })
 
-    # If reviewer also supplied explicit categoryScores, check consistency unless execution-limitation was filtered
-    FILTERED[label] = filtered_out
     return computed, valid_deductions, bool(rev.get("hardFailure", False))
 
 s1, d1, hf1 = validate_and_score_review(r1, "review-1.json")
@@ -295,7 +284,7 @@ if r2 is None:
             "reviewerSpreads": {cat: 0 for cat in categories},
             "confidence": "single-clean",
             "deductions": {"review1": []},
-            "filteredDeductions": FILTERED
+            "advisoryFailures": det.get("advisoryFailures", [])
         }
         with open(os.path.join(cell, "result.json"), "w") as f:
             json.dump(result, f, indent=2)
@@ -363,7 +352,7 @@ result = {
     "reviewerSpreads": spreads,
     "confidence": confidence,
     "deductions": all_deductions,
-    "filteredDeductions": FILTERED
+    "advisoryFailures": det.get("advisoryFailures", [])
 }
 with open(os.path.join(cell, "result.json"), "w") as f:
     json.dump(result, f, indent=2)
