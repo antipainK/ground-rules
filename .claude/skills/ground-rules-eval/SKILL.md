@@ -135,7 +135,7 @@ command with literal plain arguments:
 - `evals/ground-rules/scripts/verify-cell.sh <run-id> <scenario> <state> [--assertions]`
 - `evals/ground-rules/scripts/prep-blind-review.sh <run-id> <scenario> <state>`
 - `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> [mode] [reason]`
-- `evals/ground-rules/scripts/score-cell.sh summary <run-id> [model] [filtered]`
+- `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> [filtered]`
 
 Use the Read, Write, Edit, Glob, and Grep tools for file inspection and staging
 inside `evals/ground-rules/results/<run-id>/`.
@@ -291,8 +291,12 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      persona's raw response to `<cell>/staging/persona-turn.txt`, and run:
      `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> persona`.
      Then read `next-step.json` and resume `resumeAgentId` (target) with
-     `relayAnswers`, or if `CELL_BLOCKED`, record it with
+     `relayAnswers`, or if `CELL_BLOCKED`, record it from `next-step.json`'s
+     `failureKind`: `PRODUCT_FAIL` (a `rerun` target asked a rule question) with
+     `score-cell.sh <run-id> <scenario> <state> product-fail "<reason>"`, otherwise
      `score-cell.sh <run-id> <scenario> <state> blocked "<reason>"`.
+   - `HARNESS_ERROR` (the target reported `protocol-error`): record it with
+     `score-cell.sh <run-id> <scenario> <state> harness-error "<reason>"`.
    - `RETRY_TARGET_FORMAT` / `RETRY_PERSONA_FORMAT`: allow at most one format
      retry using `resumeAgentId`; if a second format failure occurs, run
      `score-cell.sh <run-id> <scenario> <state> harness-error "<reason>"`.

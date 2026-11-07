@@ -1,12 +1,13 @@
 #!/bin/bash
-# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|transcript|authorization> [arg1] [arg2]
+# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|workflow-review|apply-fs|git-inspect|transcript|authorization> [arg1] [arg2]
 # Script-owned turn processor and append-only audit logger:
 #   lock-agents <target-id> <persona-id>
 #     Writes <cell>/agent-ids.json once and locks it read-only.
 #   target
 #     Reads <cell>/staging/target-turn.txt (or <cell>/pending-transcript.md), strips markdown
 #     code fences if present, validates the target JSON schema, verifies workspace safety,
-#     appends the byte-exact JSON line to transcript.md, auto-answers purely mechanical
+#     defaults missing affectedPaths/draftFiles on options to [], appends the resulting
+#     canonical JSON line to transcript.md, auto-answers purely mechanical
 #     lifecycle prompts when unambiguous, and writes <cell>/staging/next-step.json.
 #   persona
 #     Reads <cell>/staging/persona-turn.txt, validates the persona JSON schema against the
@@ -313,7 +314,7 @@ else:
     [ -f "$CELL/staging/last-target-turn.json" ] || die "no last-target-turn.json to bind persona answers to"
 
     python3 -I -c 'import json,os,re,sys
-input_path, cell = sys.argv[1:3]
+input_path, cell, state = sys.argv[1:4]
 raw = open(input_path, "r", encoding="utf-8").read().strip()
 fenced = re.match(r"^```(?:json)?\s*(\{[\s\S]*\})\s*```$", raw)
 cleaned = fenced.group(1).strip() if fenced else raw
@@ -352,6 +353,9 @@ if not isinstance(p, dict) or p.get("status") not in ("answered", "unresolved"):
 if p["status"] == "unresolved":
     write_next({
         "action": "CELL_BLOCKED",
+        # In rerun the persona holds no answers, so a question it cannot answer means the target
+        # re-interviewed the maintainer: a product failure. Elsewhere it is a harness or scenario gap.
+        "failureKind": "PRODUCT_FAIL" if state == "rerun" else "HARNESS_ERROR",
         "questionIndex": p.get("questionIndex", 1),
         "reason": p.get("reason", "persona returned unresolved")
     })
@@ -433,7 +437,7 @@ write_next({
     "resumeAgentId": agent_ids.get("target"),
     "relayAnswers": relay
 })
-' "$INPUT" "$CELL"
+' "$INPUT" "$CELL" "$STATE"
     rm -f "$INPUT"
     compile_auth_json
     ;;
@@ -515,6 +519,9 @@ elif op == "mv":
     dst_full = os.path.realpath(os.path.join(ws, dst_rel))
     if not dst_full.startswith(ws_real + os.sep):
         raise SystemExit(f"error: destination escapes workspace: {dst_rel}")
+    # A case-only rename resolves to the source itself on case-insensitive filesystems, so allow that.
+    if os.path.lexists(dst_full) and dst_full.lower() != src_full.lower():
+        raise SystemExit(f"error: destination already exists: {dst_rel}")
     os.makedirs(os.path.dirname(dst_full), exist_ok=True)
     # Two-step rename when only letter case differs on case-insensitive filesystems
     if src_rel.lower() == dst_rel.lower() and src_rel != dst_rel:

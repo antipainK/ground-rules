@@ -1,7 +1,7 @@
 #!/bin/bash
 # Usage:
-#   score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked] [reason]
-#   score-cell.sh summary <run-id> [model] [filtered:true|false]
+#   score-cell.sh <run-id> <scenario> <state> [blind|harness-error|blocked|product-fail] [reason]
+#   score-cell.sh summary <run-id> <model> [filtered:true|false]
 # Validates blind reviewer outputs (review-1.json, review-2.json, optional review-3.json),
 # verifies deduction citations against actual files, computes separate 0-100 category scores,
 # separates HARNESS_ERROR / BLOCKED from PRODUCT_FAIL / PASS, and writes result.json or summary.json.
@@ -39,6 +39,13 @@ all_pass = all_18 and all(c.get("verdict") == "pass" and not c.get("hardFailure"
 m = re.fullmatch(r"claude-sonnet-(\d+)-(\d+)", model.lower())
 is_sonnet = bool(m) and (int(m.group(1)), int(m.group(2))) >= (5, 5)
 
+# snapshot-source.sh compare must have run and found the source repository unchanged
+source_unchanged = False
+try:
+    source_unchanged = json.load(open(os.path.join(run_root, "source-compare.json"))).get("identical") is True
+except Exception:
+    pass
+
 # Aggregates per category across scored cells
 cat_keys = list(rubric_doc["rubric"]["categories"].keys())
 category_Averages = {}
@@ -55,7 +62,8 @@ summary = {
     "filtered": filtered,
     "categoryAverages": category_Averages,
     "cells": cells,
-    "releaseGatePassed": bool(all_pass and not filtered and is_sonnet)
+    "sourceUnchanged": source_unchanged,
+    "releaseGatePassed": bool(all_pass and not filtered and is_sonnet and source_unchanged)
 }
 with open(os.path.join(run_root, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)
@@ -71,7 +79,7 @@ STATE="$3"
 MODE="${4:-blind}"
 REASON="${5:-}"
 
-if [ "$MODE" = "harness-error" ] || [ "$MODE" = "blocked" ]; then
+if [ "$MODE" = "harness-error" ] || [ "$MODE" = "blocked" ] || [ "$MODE" = "product-fail" ]; then
   # prep-cell.sh removes the cell on failure, so these modes must work without one.
   mkdir -p "$CELL"
   [ -n "$REASON" ] || REASON="cell stopped with $MODE"
@@ -80,9 +88,9 @@ cell, scenario, state, mode, reason = sys.argv[1:6]
 out = {
     "scenario": scenario,
     "state": state,
-    "status": mode,
-    "verdict": mode,
-    "failureKind": "HARNESS_ERROR",
+    "status": "complete" if mode == "product-fail" else mode,
+    "verdict": "fail" if mode == "product-fail" else mode,
+    "failureKind": "PRODUCT_FAIL" if mode == "product-fail" else "HARNESS_ERROR",
     "hardFailure": False,
     "reason": reason,
     "categoryScores": None,
@@ -95,7 +103,7 @@ print(mode)' "$CELL" "$SCENARIO" "$STATE" "$MODE" "$REASON"
   exit 0
 fi
 
-[ "$MODE" = "blind" ] || die "unknown mode: $MODE (expected blind, harness-error, blocked, or summary)"
+[ "$MODE" = "blind" ] || die "unknown mode: $MODE (expected blind, harness-error, blocked, product-fail, or summary)"
 [ -d "$CELL" ] || die "no such cell: $CELL"
 
 # Always run verify-cell.sh --assertions before blind scoring so stale Step 9 checks are never reused.
@@ -154,6 +162,28 @@ if state == "rerun" and det_passed and r1 is None and r2 is None:
         json.dump(result, f, indent=2)
         f.write("\n")
     print("PASS")
+    raise SystemExit(0)
+
+if state == "rerun" and not det_passed and r1 is None and r2 is None:
+    # A rerun that changed files or lost the maintainer rule is a product failure; no reviewer is needed to record it.
+    result = {
+        "scenario": scenario,
+        "state": state,
+        "status": "complete",
+        "verdict": "fail",
+        "failureKind": "PRODUCT_FAIL",
+        "hardFailure": True,
+        "deterministicChecksPassed": False,
+        "failedDeterministicChecks": det.get("failedChecks", []),
+        "categoryScores": None,
+        "overallMean": None,
+        "confidence": "deterministic-rerun",
+        "deductions": {}
+    }
+    with open(os.path.join(cell, "result.json"), "w") as f:
+        json.dump(result, f, indent=2)
+        f.write("\n")
+    print("FAIL")
     raise SystemExit(0)
 
 if r1 is None:
@@ -218,7 +248,7 @@ def validate_and_score_review(rev, label):
 
         # Filter disclosed execution-limitation non-defects automatically
         combined_text = f"{quote} {explanation}".lower()
-        if any(re.search(pat, combined_text) for pat in NON_DEFECT_PATTERNS) and anchor_id == "MISSING_BASELINE_CAVEAT_IN_POINTER":
+        if any(re.search(pat, combined_text) for pat in NON_DEFECT_PATTERNS):
             filtered_out.append({"anchorId": anchor_id, "artifactPath": art_path, "line": line_no, "quote": quote, "explanation": explanation})
             continue
 

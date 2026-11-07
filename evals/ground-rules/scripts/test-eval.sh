@@ -207,8 +207,10 @@ run_scripts_group() {
   run "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq identical; then pass T13; else fail T13 "$OUT"; fi
   if ls -A "$RESULTS/$TEST_RUN" | grep -Fq '.snap-'; then fail T13-clean "temporary snapshot files were left behind"; else pass T13-clean; fi
+  if grep -Fq '"identical": true' "$RESULTS/$TEST_RUN/source-compare.json"; then pass T13-compare-file; else fail T13-compare-file "$(cat "$RESULTS/$TEST_RUN/source-compare.json" 2>&1)"; fi
   echo "tampered" >> "$RESULTS/$TEST_RUN/source-status.txt"
   expect_fail T14 "status differs" "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
+  if grep -Fq '"identical": false' "$RESULTS/$TEST_RUN/source-compare.json"; then pass T14-compare-file; else fail T14-compare-file "$(cat "$RESULTS/$TEST_RUN/source-compare.json" 2>&1)"; fi
   echo "tampered" >> "$RESULTS/$TEST_RUN/source-head.txt"
   expect_fail T14-head "HEAD differs" "$SCRIPTS/snapshot-source.sh" compare "$TEST_RUN"
   echo "tampered" >> "$RESULTS/$TEST_RUN/source-content.txt"
@@ -399,6 +401,65 @@ TURN
     fail T22-auto-route "$OUT"
   fi
 
+  # T22b step-turn.sh target statuses
+  printf '%s\n' '{"status":"protocol-error","reason":"bad state"}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "HARNESS_ERROR"; then pass T22-protocol-error; else fail T22-protocol-error "rc=$RC out=$OUT"; fi
+  printf '%s\n' '{"hello":"world"}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RETRY_TARGET_FORMAT"; then pass T22-missing-status; else fail T22-missing-status "rc=$RC out=$OUT"; fi
+  printf '%s\n' '{"status":"complete","finalReport":"done"}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "TARGET_COMPLETE"; then pass T22-complete; else fail T22-complete "rc=$RC out=$OUT"; fi
+
+  # T22c step-turn.sh persona answers (last-target-turn.json holds the "Commit changes?" question from T22-auto)
+  cp "$CELL/staging/last-target-turn.json" "$CELL/staging/persona-test-turn.json"
+  printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Commit changes?","options":[{"text":"Commit","affectedPaths":[],"draftFiles":[]},{"text":"Skip","affectedPaths":[],"draftFiles":[]}]}]}' > "$CELL/staging/last-target-turn.json"
+  printf '%s\n' 'not json' > "$CELL/staging/persona-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
+  if echo "$OUT" | grep -Fxq "RETRY_PERSONA_FORMAT"; then pass T22-persona-bad-json; else fail T22-persona-bad-json "$OUT"; fi
+  printf '%s\n' '{"status":"answered","answers":[{"questionIndex":1,"selectedOptions":["Bogus"],"freeText":null,"authorizedBy":["matrix"]}]}' > "$CELL/staging/persona-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
+  if echo "$OUT" | grep -Fxq "RETRY_PERSONA_FORMAT"; then pass T22-persona-bad-option; else fail T22-persona-bad-option "$OUT"; fi
+  AUTH_BEFORE=$(wc -l < "$CELL/authorization.ndjson")
+  printf '%s\n' '{"status":"answered","answers":[{"questionIndex":1,"selectedOptions":["Skip"],"freeText":null,"authorizedBy":["matrix"]}]}' > "$CELL/staging/persona-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
+  AUTH_AFTER=$(wc -l < "$CELL/authorization.ndjson")
+  if echo "$OUT" | grep -Fxq "RESUME_TARGET" && [ "$AUTH_AFTER" -eq $((AUTH_BEFORE + 1)) ] && grep -Fq '"selectedOptions": ["Skip"]' "$CELL/authorization.ndjson"; then
+    pass T22-persona-answered
+  else
+    fail T22-persona-answered "out=$OUT before=$AUTH_BEFORE after=$AUTH_AFTER"
+  fi
+  printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$CELL/staging/persona-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
+  if echo "$OUT" | grep -Fxq "CELL_BLOCKED" && grep -Fq '"failureKind": "HARNESS_ERROR"' "$CELL/staging/next-step.json"; then pass T22-persona-unresolved-fresh; else fail T22-persona-unresolved-fresh "$OUT"; fi
+  # In rerun, an unresolved persona answer means the target re-interviewed the maintainer: PRODUCT_FAIL
+  RERUN_STUB="$RESULTS/$TEST_RUN/empty-python-cli/rerun"
+  if [ -e "$RERUN_STUB" ]; then
+    skip T22-persona-unresolved-rerun "unexpected existing cell $RERUN_STUB"
+  else
+    mkdir -p "$RERUN_STUB/staging"
+    cp "$CELL/staging/last-target-turn.json" "$RERUN_STUB/staging/last-target-turn.json"
+    printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$RERUN_STUB/staging/persona-turn.txt"
+    run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli rerun persona
+    if echo "$OUT" | grep -Fxq "CELL_BLOCKED" && grep -Fq '"failureKind": "PRODUCT_FAIL"' "$RERUN_STUB/staging/next-step.json"; then pass T22-persona-unresolved-rerun; else fail T22-persona-unresolved-rerun "$OUT"; fi
+    rm -rf "$RERUN_STUB"
+  fi
+  cp "$CELL/staging/persona-test-turn.json" "$CELL/staging/last-target-turn.json"
+  rm -f "$CELL/staging/persona-test-turn.json"
+
+  # T22d step-turn.sh apply-fs (allowed prefixes for empty-python-cli: AGENTS.md, .ai/, docs/, .cursorrules)
+  printf 'a\n' > "$WORKSPACE/docs/fs-a.md"
+  printf 'c\n' > "$WORKSPACE/docs/fs-c.md"
+  expect_ok T22-fs-mv "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh apply-fs mv docs/fs-a.md docs/fs-b.md
+  if [ -f "$WORKSPACE/docs/fs-b.md" ] && [ ! -e "$WORKSPACE/docs/fs-a.md" ]; then pass T22-fs-mv-effect; else fail T22-fs-mv-effect "mv did not move the file"; fi
+  expect_fail T22-fs-mv-no-overwrite "destination already exists" "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh apply-fs mv docs/fs-b.md docs/fs-c.md
+  if [ "$(cat "$WORKSPACE/docs/fs-c.md")" = "c" ]; then pass T22-fs-mv-kept-dest; else fail T22-fs-mv-kept-dest "destination was overwritten"; fi
+  expect_fail T22-fs-disallowed "not in allowedChangePrefixes" "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh apply-fs rm pyproject.toml
+  expect_ok T22-fs-rm "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh apply-fs rm docs/fs-b.md
+  rm -f "$WORKSPACE/docs/fs-c.md"
+  if [ ! -e "$WORKSPACE/docs/fs-b.md" ]; then pass T22-fs-rm-effect; else fail T22-fs-rm-effect "file still exists"; fi
+
   # T24b score-cell.sh 5x 0-100 category scoring, citation check, and tie-breaker detection
   printf '# Title\n\nLast reviewed: 2026-01-01\n\n- Read `.ai/testing.md` before tests.\n' > "$WORKSPACE/AGENTS.md"
   printf '# Testing\n\nLast reviewed: 2026-01-01\n\n- Keep tests isolated. Project decision\n' > "$WORKSPACE/.ai/testing.md"
@@ -470,7 +531,7 @@ sys.exit(0 if r["confidence"] == "tie-broken" and r["verdict"] == "pass" and r["
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
   if python3 -I -c 'import json,sys
 s = json.load(open(sys.argv[1]))
-sys.exit(0 if s["model"] == "claude-sonnet-5-5" and s["filtered"] is True and s["releaseGatePassed"] is False and len(s["cells"]) >= 1 else 1)' "$RESULTS/$TEST_RUN/summary.json"; then
+sys.exit(0 if s["model"] == "claude-sonnet-5-5" and s["filtered"] is True and s["releaseGatePassed"] is False and s["sourceUnchanged"] is False and len(s["cells"]) >= 1 else 1)' "$RESULTS/$TEST_RUN/summary.json"; then
     pass T24-summary-values
   else
     fail T24-summary-values "$(cat "$RESULTS/$TEST_RUN/summary.json")"
@@ -489,6 +550,15 @@ sys.exit(0 if r["verdict"] == "blocked" and r["reason"] == "prep failed" and r["
       pass T24-blocked-values
     else
       fail T24-blocked-values "$(cat "$GONE/result.json" 2>&1)"
+    fi
+    rm -rf "$GONE"
+    expect_ok T24-product-fail-no-cell "$SCRIPTS/score-cell.sh" "$TEST_RUN" polyglot-monorepo fresh product-fail "asked a rule question"
+    if python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r["verdict"] == "fail" and r["failureKind"] == "PRODUCT_FAIL" and r["reason"] == "asked a rule question" and r["categoryScores"] is None else 1)' "$GONE/result.json"; then
+      pass T24-product-fail-values
+    else
+      fail T24-product-fail-values "$(cat "$GONE/result.json" 2>&1)"
     fi
     rm -rf "$GONE"
   fi
@@ -649,6 +719,20 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
 
   check2 empty-python-cli rerun
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "rerun produced no diff" | grep -Fq PASS && echo "$OUT" | grep -F "maintainer rule preserved" | grep -Fq PASS; then pass T74; else fail T74 "$OUT"; fi
+
+  # T74b a rerun that fails the deterministic checks is a recorded PRODUCT_FAIL, with no reviewer files needed.
+  # This stub rerun is built from the bare fixture, so it lacks the scenario's required artifacts and scoring
+  # runs verify-cell.sh --assertions, which fails "scenario artifact assertions".
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN2" empty-python-cli rerun blind
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "FAIL" \
+    && grep -Fq '"failureKind": "PRODUCT_FAIL"' "$CELL/result.json" \
+    && grep -Fq '"hardFailure": true' "$CELL/result.json" \
+    && grep -Fq 'scenario artifact assertions' "$CELL/result.json"; then
+    pass T74-rerun-score-fail
+  else
+    fail T74-rerun-score-fail "rc=$RC out=$OUT"
+  fi
+  rm -f "$CELL/result.json"
 
   # T83 and T84 every scenario prepares cleanly in each state, and every rerun rule resolves
   expect_ok T83-setup "$SCRIPTS/init-run.sh" "$TEST_RUN3"
