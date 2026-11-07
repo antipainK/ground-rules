@@ -270,6 +270,14 @@ run_scripts_group() {
   cp "$WORKSPACE/AGENTS.md" "$CELL/AGENTS.md.saved"
   yes line | head -n 151 > "$WORKSPACE/AGENTS.md"
   expect_check_fail T18 "AGENTS.md at most 150 lines"
+  # A size limit is advice: it is listed as an advisory failure and is not a safety failure
+  if python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d["passed"] is True and d["safetyScore"] == 100 and d["failedChecks"] == [] and "AGENTS.md at most 150 lines" in d["advisoryFailures"] else 1)' "$CELL/deterministic-checks.json"; then
+    pass T18-advisory
+  else
+    fail T18-advisory "$(cat "$CELL/deterministic-checks.json")"
+  fi
   cp "$CELL/AGENTS.md.saved" "$WORKSPACE/AGENTS.md"
   expect_check_pass T18-undo
 
@@ -523,11 +531,13 @@ R3
   expect_ok T24-tiebreaker-resolved "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
   if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["confidence"] == "tie-broken" and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "filteredDeductions" in r else 1)' "$CELL/result.json"; then
+sys.exit(0 if r["confidence"] == "tie-broken" and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "advisoryFailures" in r and "filteredDeductions" not in r else 1)' "$CELL/result.json"; then
     pass T24-tiebreaker-values
   else
     fail T24-tiebreaker-values "$(cat "$CELL/result.json")"
   fi
+  # A completed result is never replaced by a stopped-cell record
+  expect_fail T24-no-overwrite "refusing to overwrite" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blocked "late failure"
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
   if python3 -I -c 'import json,sys
 s = json.load(open(sys.argv[1]))
@@ -720,19 +730,25 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
   check2 empty-python-cli rerun
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "rerun produced no diff" | grep -Fq PASS && echo "$OUT" | grep -F "maintainer rule preserved" | grep -Fq PASS; then pass T74; else fail T74 "$OUT"; fi
 
-  # T74b a rerun that fails the deterministic checks is a recorded PRODUCT_FAIL, with no reviewer files needed.
-  # This stub rerun is built from the bare fixture, so it lacks the scenario's required artifacts and scoring
-  # runs verify-cell.sh --assertions, which fails "scenario artifact assertions".
+  # A missing maintainer-rule record is a FAIL row, not an aborted script
+  mv "$CELL/maintainer-rule.txt" "$CELL/maintainer-rule.saved"
+  expect2_fail T74-rule-record-missing empty-python-cli rerun "maintainer rule preserved"
+  mv "$CELL/maintainer-rule.saved" "$CELL/maintainer-rule.txt"
+
+  # T74b a rerun that changed files fails a hard check and is a recorded PRODUCT_FAIL, with no reviewer files.
+  # (The stub rerun also lacks the scenario artifacts; that is only an advisory failure.)
+  mkdir -p "$WORKSPACE/docs"
+  printf 'extra\n' > "$WORKSPACE/docs/rerun-extra.md"
   run "$SCRIPTS/score-cell.sh" "$TEST_RUN2" empty-python-cli rerun blind
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "FAIL" \
     && grep -Fq '"failureKind": "PRODUCT_FAIL"' "$CELL/result.json" \
     && grep -Fq '"hardFailure": true' "$CELL/result.json" \
-    && grep -Fq 'scenario artifact assertions' "$CELL/result.json"; then
+    && grep -Fq 'rerun produced no diff' "$CELL/result.json"; then
     pass T74-rerun-score-fail
   else
     fail T74-rerun-score-fail "rc=$RC out=$OUT"
   fi
-  rm -f "$CELL/result.json"
+  rm -f "$WORKSPACE/docs/rerun-extra.md" "$CELL/result.json"
 
   # T83 and T84 every scenario prepares cleanly in each state, and every rerun rule resolves
   expect_ok T83-setup "$SCRIPTS/init-run.sh" "$TEST_RUN3"

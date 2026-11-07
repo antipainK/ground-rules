@@ -52,7 +52,7 @@ scenario, state), validates them in `common.sh`, and works only inside
 | `snapshot-source.sh` | Records and compares the source repository's HEAD, status and file-content fingerprints (`before`, `after`, `compare`) |
 | `prep-cell.sh` | Builds one cell with a baseline commit, separate Git directory, prepared-workspace snapshot and pre-run safety records |
 | `step-turn.sh` | Locks agent IDs, strips markdown fences, validates target/persona JSON, auto-answers mechanical lifecycle prompts, and appends logs |
-| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks and scenario `artifactAssertions`; writes `deterministic-checks.json` |
+| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks and scenario `artifactAssertions`; writes `deterministic-checks.json`. Only safety rows (Git, paths, secrets, rerun diff and rule) can fail a cell. Size limits, pointers, reachability, ownership markers and `artifactAssertions` are advisory: they are listed under `advisoryFailures` and never set `hardFailure` |
 | `prep-blind-review.sh` | Safely builds `blind-input/` after verifying Git pointer and config integrity |
 | `score-cell.sh` | Verifies reviewer citations, computes the five `0–100` category scores, separates `HARNESS_ERROR` from `PRODUCT_FAIL`, and compiles `summary.json` |
 | `test-eval.sh` | Regression and calibration test suite (`scripts`, `config` or `all`) |

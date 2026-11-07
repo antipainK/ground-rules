@@ -353,4 +353,4 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
 5. After all selected cells finish, run:
    - `evals/ground-rules/scripts/snapshot-source.sh after <run-id>`
    - `evals/ground-rules/scripts/snapshot-source.sh compare <run-id>`
-   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <filtered:true|false>`
+   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <true|false>` (`true` marks a run that covered only some scenarios)
