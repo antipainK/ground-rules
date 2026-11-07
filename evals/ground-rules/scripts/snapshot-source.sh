@@ -44,7 +44,13 @@ case "$MODE" in
     cmp -s "$RUN_ROOT/source-head.txt" "$RUN_ROOT/source-head-after.txt" || { echo "HEAD differs"; FAILED=1; }
     cmp -s "$RUN_ROOT/source-status.txt" "$RUN_ROOT/source-status-after.txt" || { echo "status differs"; FAILED=1; }
     cmp -s "$RUN_ROOT/source-content.txt" "$RUN_ROOT/source-content-after.txt" || { echo "content differs"; FAILED=1; }
-    [ "$FAILED" -eq 0 ] || exit 1
+    # The release gate in score-cell.sh summary reads this file.
+    if [ "$FAILED" -eq 0 ]; then
+      printf '{"identical": true}\n' > "$RUN_ROOT/source-compare.json"
+    else
+      printf '{"identical": false}\n' > "$RUN_ROOT/source-compare.json"
+      exit 1
+    fi
     echo "identical"
     ;;
   *) die "unknown mode: $MODE" ;;

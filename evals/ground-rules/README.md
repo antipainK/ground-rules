@@ -74,9 +74,10 @@ The shared `.claude/settings.json` publishes three entries:
   `step-turn.sh`, `verify-cell.sh`, `prep-blind-review.sh`, `score-cell.sh`), not
   a folder wildcard. `test-eval.sh` is deliberately omitted so running the test
   suite still asks.
-- `permissions.ask`: `Edit(...)` for the scripts folder, `.claude/settings.json`,
-  `.claude/agents/` and `.claude/skills/`.
-- `sandbox.filesystem.denyWrite`: the scripts folder and `.claude/agents`, so Bash
+- `permissions.ask`: `Edit(...)` for the scripts folder, `rubric.json`, `scenarios/`,
+  `plugins/`, `.claude/settings.json`, `.claude/agents/` and `.claude/skills/`.
+- `sandbox.filesystem.denyWrite`: the scripts folder, `rubric.json`, `scenarios`,
+  `plugins`, `.claude/settings.json`, `.claude/agents` and `.claude/skills`, so Bash
   cannot rewrite them when the sandbox is on.
 
 Run `evals/ground-rules/scripts/test-eval.sh` after changing a script or the
@@ -93,10 +94,15 @@ Each cell is evaluated across five independent `0–100` categories:
 5. `maintainabilityAndDocsHygiene` (floor `80`)
 
 A cell passes when `hardFailure` is `false`, every category meets its floor, and
-the unweighted mean across the five categories is at least `88.0`. If the two
-blind reviewers diverge by more than `10` points on any category or split on a
-pass floor, `score-cell.sh` requests a third tie-breaker reviewer and uses the
-per-category median.
+the unweighted mean across the five categories is at least `88.0`. One blind
+reviewer scores each `fresh` and `foreign` cell. A second is requested only when
+the first reports a deduction or hard failure (`score-cell.sh` exits 3). If the
+two reviewers diverge by more than `10` points on any category, split on a pass
+floor, or disagree on `hardFailure`, `score-cell.sh` requests a third tie-breaker
+reviewer and uses the per-category median. `rerun` cells need no reviewers: a
+zero diff with the maintainer rule preserved scores `100`, and a rerun that fails
+the deterministic checks is recorded as `PRODUCT_FAIL`. The release gate also
+requires `snapshot-source.sh compare` to have found the source repository unchanged.
 
 Outputs are written under `evals/ground-rules/results/`, which is ignored by
 Git.
