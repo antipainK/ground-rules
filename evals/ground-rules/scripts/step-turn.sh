@@ -191,12 +191,12 @@ elif status == "complete":
     if not os.path.isfile(dec_path):
         with open(dec_path, "w") as df:
             df.write("[]\n")
-    auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
-    if not os.path.isfile(auth_ndjson):
-        open(auth_ndjson, "w").close()
-    auth_json = os.path.join(cell, "maintainer-answers.json")
-    if not os.path.isfile(auth_json):
-        with open(auth_json, "w") as aj:
+    answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+    if not os.path.isfile(answers_ndjson):
+        open(answers_ndjson, "w").close()
+    answers_json = os.path.join(cell, "maintainer-answers.json")
+    if not os.path.isfile(answers_json):
+        with open(answers_json, "w") as aj:
             aj.write("[]\n")
 elif status == "protocol-error":
     write_next({
@@ -276,8 +276,8 @@ for idx, q in enumerate(obj["questions"], 1):
         })
 
 if len(auto_answers) == len(obj["questions"]):
-    auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
-    with open(auth_ndjson, "a", encoding="utf-8") as af:
+    answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+    with open(answers_ndjson, "a", encoding="utf-8") as af:
         for entry in auto_answers:
             af.write(json.dumps(entry, ensure_ascii=False) + "\n")
     relay = [
@@ -426,8 +426,8 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
         "freeText": ft
     })
 
-auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
-with open(auth_ndjson, "a", encoding="utf-8") as af:
+answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+with open(answers_ndjson, "a", encoding="utf-8") as af:
     for r in records:
         af.write(json.dumps(r, ensure_ascii=False) + "\n")
 
