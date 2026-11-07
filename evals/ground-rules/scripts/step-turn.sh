@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|workflow-review|apply-fs|git-inspect|transcript|authorization> [arg1] [arg2]
+# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|workflow-review|apply-fs|git-inspect|transcript|maintainer-answers> [arg1] [arg2]
 # Script-owned turn processor and append-only audit logger:
 #   lock-agents <target-id> <persona-id>
 #     Writes <cell>/agent-ids.json once and locks it read-only.
@@ -11,11 +11,11 @@
 #     lifecycle prompts when unambiguous, and writes <cell>/staging/next-step.json.
 #   persona
 #     Reads <cell>/staging/persona-turn.txt, validates the persona JSON schema against the
-#     last unanswered target turn, appends accepted entries to authorization.ndjson, compiles
-#     deduplicated authorization.json, and writes the target relay payload to
+#     last unanswered target turn, appends accepted entries to maintainer-answers.ndjson, compiles
+#     deduplicated maintainer-answers.json, and writes the target relay payload to
 #     <cell>/staging/next-step.json.
-#   transcript | authorization
-#     Direct append compatibility for pending-transcript.md / pending-authorization.ndjson.
+#   transcript | maintainer-answers
+#     Direct append compatibility for pending-transcript.md / pending-maintainer-answers.ndjson.
 
 . "$(dirname "$0")/common.sh"
 
@@ -35,7 +35,7 @@ append_newline_safe() {
   cat "$src" >> "$dst"
 }
 
-compile_auth_json() {
+compile_answers_json() {
   python3 -I -c 'import json,os,sys
 ndjson_path, json_path = sys.argv[1:3]
 entries = []
@@ -49,7 +49,7 @@ if os.path.isfile(ndjson_path):
                 entries.append(json.loads(rec))
 with open(json_path, "w") as out:
     json.dump(entries, out, indent=2)
-    out.write("\n")' "$CELL/authorization.ndjson" "$CELL/authorization.json"
+    out.write("\n")' "$CELL/maintainer-answers.ndjson" "$CELL/maintainer-answers.json"
 }
 
 case "$MODE" in
@@ -76,13 +76,13 @@ with open(sys.argv[3], "w") as f:
     echo "appended to transcript.md"
     ;;
 
-  authorization)
-    PENDING="$CELL/pending-authorization.ndjson"
+  maintainer-answers)
+    PENDING="$CELL/pending-maintainer-answers.ndjson"
     [ -s "$PENDING" ] || die "no pending content: $PENDING"
-    append_newline_safe "$PENDING" "$CELL/authorization.ndjson"
+    append_newline_safe "$PENDING" "$CELL/maintainer-answers.ndjson"
     rm "$PENDING"
-    compile_auth_json
-    echo "appended to authorization.ndjson"
+    compile_answers_json
+    echo "appended to maintainer-answers.ndjson"
     ;;
 
   target)
@@ -191,10 +191,10 @@ elif status == "complete":
     if not os.path.isfile(dec_path):
         with open(dec_path, "w") as df:
             df.write("[]\n")
-    auth_ndjson = os.path.join(cell, "authorization.ndjson")
+    auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
     if not os.path.isfile(auth_ndjson):
         open(auth_ndjson, "w").close()
-    auth_json = os.path.join(cell, "authorization.json")
+    auth_json = os.path.join(cell, "maintainer-answers.json")
     if not os.path.isfile(auth_json):
         with open(auth_json, "w") as aj:
             aj.write("[]\n")
@@ -238,15 +238,15 @@ if status == "complete":
 
 # Check if all questions in this needs-answer turn are purely mechanical lifecycle prompts
 scenario = json.load(open(scenario_file))
-ps = scenario.get("policySpec", {})
+ps = scenario.get("approvedPolicy", {})
 auto_answers = []
 for idx, q in enumerate(obj["questions"], 1):
     opts = [o["text"] for o in q["options"]]
     matched = None
     reason = None
-    if state == "rerun" and any(o.startswith("Focused update") for o in opts):
+    if state == "update" and any(o.startswith("Focused update") for o in opts):
         matched = next(o for o in opts if o.startswith("Focused update"))
-        reason = "In the rerun state, choose the presented run-choice option whose label starts with Focused update."
+        reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
     elif state == "foreign" and any(o.startswith(scenario.get("foreignRunChoice", "__none__")) for o in opts):
         frc = scenario["foreignRunChoice"]
         matched = next(o for o in opts if o.startswith(frc))
@@ -276,7 +276,7 @@ for idx, q in enumerate(obj["questions"], 1):
         })
 
 if len(auto_answers) == len(obj["questions"]):
-    auth_ndjson = os.path.join(cell, "authorization.ndjson")
+    auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
     with open(auth_ndjson, "a", encoding="utf-8") as af:
         for entry in auto_answers:
             af.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -303,8 +303,8 @@ else:
     })
 ' "$INPUT" "$CELL" "$SCENARIO_FILE" "$STATE"
     rm -f "$INPUT"
-    if [ -f "$CELL/authorization.ndjson" ]; then
-      compile_auth_json
+    if [ -f "$CELL/maintainer-answers.ndjson" ]; then
+      compile_answers_json
     fi
     ;;
 
@@ -352,10 +352,10 @@ if not isinstance(p, dict) or p.get("status") not in ("answered", "unresolved"):
 
 if p["status"] == "unresolved":
     write_next({
-        "action": "CELL_BLOCKED",
-        # In rerun the persona holds no answers, so a question it cannot answer means the target
+        "action": "CELL_STOPPED",
+        # In update the persona holds no answers, so a question it cannot answer means the target
         # re-interviewed the maintainer: a product failure. Elsewhere it is a harness or scenario gap.
-        "failureKind": "PRODUCT_FAIL" if state == "rerun" else "HARNESS_ERROR",
+        "failureKind": "PRODUCT" if state == "update" else "HARNESS",
         "questionIndex": p.get("questionIndex", 1),
         "reason": p.get("reason", "persona returned unresolved")
     })
@@ -426,7 +426,7 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
         "freeText": ft
     })
 
-auth_ndjson = os.path.join(cell, "authorization.ndjson")
+auth_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
 with open(auth_ndjson, "a", encoding="utf-8") as af:
     for r in records:
         af.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -439,7 +439,7 @@ write_next({
 })
 ' "$INPUT" "$CELL" "$STATE"
     rm -f "$INPUT"
-    compile_auth_json
+    compile_answers_json
     ;;
 
   workflow-review)
@@ -551,6 +551,6 @@ else:
     ;;
 
   *)
-    die "unknown step-turn mode: $MODE (expected lock-agents, target, persona, workflow-review, apply-fs, git-inspect, transcript or authorization)"
+    die "unknown step-turn mode: $MODE (expected lock-agents, target, persona, workflow-review, apply-fs, git-inspect, transcript or maintainer-answers)"
     ;;
 esac

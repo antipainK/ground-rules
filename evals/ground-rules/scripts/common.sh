@@ -35,8 +35,8 @@ validate_scenario() {
 
 validate_state() {
   case "$1" in
-    fresh | foreign | rerun) ;;
-    *) die "invalid state: $1 (expected fresh, foreign or rerun)" ;;
+    fresh | foreign | update) ;;
+    *) die "invalid state: $1 (expected fresh, foreign or update)" ;;
   esac
 }
 

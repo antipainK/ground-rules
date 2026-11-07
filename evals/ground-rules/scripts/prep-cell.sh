@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: prep-cell.sh <run-id> <scenario> <fresh|foreign|rerun>
+# Usage: prep-cell.sh <run-id> <scenario> <fresh|foreign|update>
 # Builds one evaluation cell under results/<run-id>/<scenario>/<state>/:
 #   workspace/   the working copy
 #   git-data/    separate Git directory, so workspace/.git is a pointer file
@@ -8,7 +8,7 @@
 #          to src/server.js and a staged release note in README.md
 # foreign  the fresh state plus the foreign overlay, copied after the baseline commit and
 #          saved in pre-run-copies/ so any unapproved modification is detected
-# rerun    the final files of the passed fresh cell in a new repository, plus one maintainer
+# update   the final files of the passed fresh cell in a new repository, plus one maintainer
 #          rule from scenario.json appended to the single .ai file matching the scenario's topic
 # A copy failure (for example a fixture file the sandbox blocks) removes the half-built cell.
 
@@ -101,9 +101,9 @@ plant_legacy_edits() {
   cp "$WORKSPACE/src/server.js" "$CELL/pre-run-copies/src/server.js"
 }
 
-# Finds the one .ai file of the fresh workspace that matches the scenario's rerun topics, then
-# builds the rerun cell. Every refusal below happens before the cell is created.
-prepare_rerun() {
+# Finds the one .ai file of the fresh workspace that matches the scenario's update topics, then
+# builds the update cell. Every refusal below happens before the cell is created.
+prepare_update() {
   [ -d "$FRESH/workspace" ] || die "no fresh cell for $SCENARIO in this run"
   [ -f "$FRESH/result.json" ] || die "the fresh cell has not passed: no result.json"
   python3 -I -c 'import json,sys
@@ -117,12 +117,12 @@ sys.exit(0 if d.get("verdict") == "pass" else 1)' "$FRESH/result.json" || die "t
   mkdir -p "$TMP"
   python3 -I -c 'import json,sys
 s = json.load(open(sys.argv[1]))
-r = s.get("rerunMaintainerRule")
+r = s.get("updateMaintainerRule")
 if not r or not r.get("topics") or not r.get("text"):
     sys.exit(3)
 open(sys.argv[2], "w").write("\n".join(t.lower() for t in r["topics"]) + "\n")
 open(sys.argv[3], "w").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.txt" "$TMP/rule.txt" \
-    || die "no usable rerunMaintainerRule for $SCENARIO in scenario.json"
+    || die "no usable updateMaintainerRule for $SCENARIO in scenario.json"
   local rule
   rule=$(cat "$TMP/rule.txt")
 
@@ -178,7 +178,7 @@ if reviewed == today:
 else:
     text = text[:m.start(1)] + today.isoformat() + text[m.end(1):]
     open(p, "w").write(text)
-    print(1)' "$WORKSPACE/$match") || fail_clean "the rerun target file lacks a valid Last reviewed date"
+    print(1)' "$WORKSPACE/$match") || fail_clean "the update target file lacks a valid Last reviewed date"
   append_line "$WORKSPACE/$match" "$rule"
   local changed stat
   changed=$(fgit diff --name-only)
@@ -195,8 +195,8 @@ else:
   printf '%s\n%s\n' "$match" "$rule" > "$CELL/maintainer-rule.txt"
 }
 
-if [ "$STATE" = "rerun" ]; then
-  prepare_rerun
+if [ "$STATE" = "update" ]; then
+  prepare_update
 else
   mkdir -p "$WORKSPACE"
   reject_fixture_unsafe_entries "$BASE"

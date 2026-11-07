@@ -2,7 +2,7 @@
   "id": "legacy-node-service",
   "persona": "Long-term maintainer modernizing an npm Express/CommonJS service without rewriting application code.",
   "foreignRunChoice": "Migrate interactively",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "code-style",
       "style",
@@ -17,7 +17,7 @@
     "CLAUDE.md",
     ".github/copilot-instructions.md"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "dirtyWorkChoice": "Continue without commit",
     "docsGovernance": "Snapshot + living docs",
     "structure": "Focused files",

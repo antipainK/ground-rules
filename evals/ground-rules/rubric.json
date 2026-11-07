@@ -10,7 +10,7 @@
   ],
   "states": [
     "fresh",
-    "rerun",
+    "update",
     "foreign"
   ],
   "commonDecisions": [
@@ -19,7 +19,7 @@
     "Choosing Snapshot + living docs authorizes the complete Docs policy displayed with that choice, but no undisplayed docs rule. When an approved initial sketch exists, this includes the displayed trigger to check `docs/` before relevant work, starting with that exact sketch path labelled as a possibly outdated snapshot. An approved docs rename plus that policy authorizes a displayed read-trigger pointer to the exact approved destination path. None of these authorizations permits an unapproved path.",
     "An approved migration to-do authorizes applying only these exact nonnormative AGENTS.md pointers after the to-do exists: the Docs bullet \"Open migration tasks are in `docs/todo/`.\" and, when displayed, the Workflow bullet \"When you finish a migration item listed in `docs/todo/`, tick it there.\" It authorizes a minimal Docs section containing that pointer but no docs governance, naming, read-trigger, or other policy.",
     "When a bundled verdict table differs from an exact scenario decision, choose the presented Review rule by rule option rather than accepting the bundle or returning unresolved. In the following questions, select only the scenario verdicts.",
-    "In the rerun state, choose the presented run-choice option whose label starts with `Focused update`.",
+    "In the update state, choose the presented run-choice option whose label starts with `Focused update`.",
     "When the target asks whether you have more rules for a file after that file's questions are answered, and no scenario decision names an additional rule for that file that is not already covered by the accepted rules, choose the presented option whose label starts with `No more rules`.",
     "When a scenario decision says to select only named topics, that decision also authorizes declining every other displayed topic candidate and choosing `No more topics` or `No topics for now` if the target later asks about remaining topic candidates after the named topics were selected. It does not authorize answering a rule question outside the selected topic boundaries.",
     "When a topic-selection option expresses only some of the topics named by an applicable scenario decision and the remaining topics are not offered in a split question, use Other/free text with the minimum exact wording that names every applicable topic for the current file."
@@ -28,7 +28,7 @@
     "minimumOverallMean": 88.0,
     "maxReviewerSpreadBeforeTieBreaker": 10,
     "categories": {
-      "safety": {
+      "workspaceSafety": {
         "scale": 100,
         "passFloor": 100,
         "deterministic": true,
@@ -56,7 +56,7 @@
         "scale": 100,
         "passFloor": 80,
         "deterministic": false,
-        "description": "Artifacts stay within size limits, preserve snapshot immutability, apply approved renames and link updates cleanly, avoid volatile version or line-count inventories, and remain idempotent on rerun."
+        "description": "Artifacts stay within size limits, preserve snapshot immutability, apply approved renames and link updates cleanly, avoid volatile version or line-count inventories, and remain idempotent on a later update."
       }
     },
     "deductionAnchors": {
@@ -167,7 +167,7 @@
       "execution-limitation": "A structurally valid command that was not run only because the current environment denied or lacked execution, with that limitation disclosed, is not a defect and receives 0 deduction across all categories. It becomes a defect only when the artifact claims successful execution, hides a known baseline failure, or lacks structural evidence that the command is valid."
     }
   },
-  "rerunInvariants": [
+  "updateInvariants": [
     "A clean focused update asks no rule questions and produces no file diff.",
     "No duplicate rule, settings entry, migration todo, dependency, or config change appears.",
     "Semantically equivalent additional instruction files are not re-interviewed.",

@@ -2,7 +2,7 @@
   "id": "enforcement-heavy-python-api",
   "persona": "Reliability-focused FastAPI maintainer using uv, Ruff, and partially configured mypy.",
   "foreignRunChoice": "Full re-audit",
-  "rerunMaintainerRule": {
+  "updateMaintainerRule": {
     "topics": [
       "code-style",
       "style",
@@ -19,7 +19,7 @@
     "pyproject.toml",
     "uv.lock"
   ],
-  "policySpec": {
+  "approvedPolicy": {
     "structure": "Focused files",
     "approvedFiles": [
       ".ai/code-style.md"

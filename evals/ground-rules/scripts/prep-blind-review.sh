@@ -1,9 +1,9 @@
 #!/bin/bash
 # Usage: prep-blind-review.sh <run-id> <scenario> <state>
-# Builds <cell>/blind-input/ for the final blind evaluators:
+# Builds <cell>/blind-input/ for the blind evaluators:
 #   rubric.json        the 5x 0-100 category rubric, deduction anchors, and hard failures
 #   changed-paths.txt  created, deleted and modified paths, one per line
-#   authorization.json exact accepted answers and their selected bindings
+#   maintainer-answers.json exact accepted answers and their selected bindings
 #   decision-record.json the target's exact sanitized Ground Rules decision record
 # The folder is built aside and moved into place at the end, so a failure leaves nothing
 # behind and the script can be run again.
@@ -32,8 +32,8 @@ cmp -s "$TMP/initial-workspace-manifest.txt" "$CELL/pre-initial-workspace-manife
 
 verify_git_safety || die "Git pointer, configuration or symlink safety check failed before building blind input"
 
-[ -f "$CELL/authorization.json" ] || die "authorization.json is missing"
-[ -f "$CELL/authorization.ndjson" ] || die "authorization.ndjson is missing"
+[ -f "$CELL/maintainer-answers.json" ] || die "maintainer-answers.json is missing"
+[ -f "$CELL/maintainer-answers.ndjson" ] || die "maintainer-answers.ndjson is missing"
 [ -f "$CELL/decision-record.json" ] || die "decision-record.json is missing"
 
 write_changed_lists "$TMP"
@@ -46,7 +46,7 @@ json.dump(out, open(sys.argv[2], "w"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.js
 python3 -I -c 'import json,sys
 compiled = json.load(open(sys.argv[1]))
 if not isinstance(compiled, list):
-    raise SystemExit("authorization.json must be an array")
+    raise SystemExit("maintainer-answers.json must be an array")
 raw = []
 raw_lines = []
 with open(sys.argv[2], "rb") as f:
@@ -57,7 +57,7 @@ with open(sys.argv[2], "rb") as f:
                 raw.append(json.loads(record))
                 raw_lines.append(record)
             except json.JSONDecodeError as exc:
-                raise SystemExit(f"invalid authorization.ndjson line {number}: {exc}")
+                raise SystemExit(f"invalid maintainer-answers.ndjson line {number}: {exc}")
 entries = []
 seen = set()
 for entry, record in zip(raw, raw_lines):
@@ -65,14 +65,14 @@ for entry, record in zip(raw, raw_lines):
         seen.add(record)
         entries.append(entry)
 if compiled != entries:
-    raise SystemExit("authorization.json does not match the complete deduplicated authorization.ndjson log")
+    raise SystemExit("maintainer-answers.json does not match the complete deduplicated maintainer-answers.ndjson log")
 out = []
 for entry in entries:
     q = entry["question"]
     selected = entry.get("selectedOptions", [])
     free_text = entry.get("freeText")
     if not isinstance(q, dict) or not isinstance(selected, list):
-        raise SystemExit("malformed authorization entry")
+        raise SystemExit("malformed maintainer-answers entry")
     options = q.get("options", [])
     bindings = []
     for text in selected:
@@ -81,7 +81,7 @@ for entry in entries:
             raise SystemExit("selected option does not have exactly one binding")
         bindings.append(matches[0])
     if not selected and free_text is None:
-        raise SystemExit("authorization entry has neither option nor free text")
+        raise SystemExit("maintainer-answers entry has neither option nor free text")
     out.append({
         "questionIndex": entry["questionIndex"],
         "questionText": q.get("text"),
@@ -90,7 +90,7 @@ for entry in entries:
         "selectedBindings": bindings,
     })
 json.dump(out, open(sys.argv[3], "w"), indent=1)' \
-  "$CELL/authorization.json" "$CELL/authorization.ndjson" "$NEW/authorization.json"
+  "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.ndjson" "$NEW/maintainer-answers.json"
 
 python3 -I -c 'import json,sys
 record = json.load(open(sys.argv[1]))
