@@ -22,7 +22,7 @@ docs/              human + AI design docs, plans, decisions
 - **Enforced beats written.** When a linter, formatter, compiler flag, or CI job can check a rule, propose that config or point to it. Write one pointer line per tool in `.ai/` instead of restating individual configured rules in prose.
 - **Recommend from evidence; label personal config.** Stored personal preferences of whoever runs the skill (`~/.claude/CLAUDE.md`, memories, personal skills) never judge the repo or become rules unpicked. If personal config matches the evidence-backed recommendation, append `(Personal)` after `(Recommended)` and state both grounds; if it differs, offer `Your preference (personal config)` without recommending it. Operator workflow preferences (how to ask, when to commit) govern the run, never repository files.
 - **Detect the environment.** Read OS, shell, package manager, and tooling from the repository; ask when unclear.
-- **Scope: conventions, not application code.** Change only `AGENTS.md`, `.ai/`, `docs/`, AI instruction files, tool configs (linter, formatter, compiler, CI), non-secret example configs, dependency manifests/lockfiles, and `.claude/settings.json` permissions (Step 8). Skip `.claude/skills/` and never edit application code; report code violations at the end.
+- **Scope: conventions, not application code.** Change only `AGENTS.md`, `.ai/`, `docs/`, AI instruction files, tool configs (linter, formatter, compiler, CI), non-secret example configs, dependency manifests/lockfiles, and `.claude/settings.json` permissions (Step 8). Skip `.claude/skills/` and never edit application code; report code violations at the end. Never read or display `.env` or credential files, and never write secrets or secret-shaped sample tokens into example configs, rules, or docs—keep placeholders empty (e.g. `SERVICE_TOKEN=`).
 - **Team-owned Markdown, zero hidden state.** `AGENTS.md` and `.ai/*.md` are ordinary repository files. Never write hashes, `ground-rules:managed` markers, `.ai/.ground-rules.json`, or hidden ownership state. Derive every conclusion from current files, repository facts, and answers in this run.
 
 ## Asking questions
@@ -56,9 +56,9 @@ Keep output scannable in a terminal—never overwhelm the user with walls of pro
 
 Read only; change nothing yet. Collect:
 
-1. **Stack & checks:** manifests, lockfiles, `README*`, CI workflows, linter/formatter/compiler configs, and directory layout. Verify what scripts and wrappers actually do by reading them rather than guessing from filenames.
-2. **AI instruction files (any depth):** `AGENTS.md`, `.claude/AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `.claude/settings.json` (config inventory only), `.cursorrules`, `.cursor/rules/`, `.github/copilot-instructions.md`, `.github/instructions/`, `.windsurfrules`, `GEMINI.md`, `.ai/`. Skip `.claude/skills/`. Treat legacy `.ai/.ground-rules.json` and `ground-rules:managed` comments as cleanup targets, never provenance. Fetch current official loading/scope/precedence docs for each detected format and display a compact precedence table before claiming a conflict or proposing deletion; if official behavior cannot be verified, mark precedence unknown and preserve the file unless asked. Separate ignored or untracked machine-local overrides (e.g. `CLAUDE.local.md`): report them, never migrate, delete, or commit them unless explicitly asked.
-3. **`docs/` & `docs/todo/`:** filenames, cross-links, and open vs ticked to-do items. Offer one `Apply / Skip` confirmation to tick items proven complete in code; leave uncertain items open.
+1. **Stack & checks:** manifests, lockfiles, `README*`, CI workflows, linter/formatter/compiler configs, and directory layout. Verify what scripts and wrappers actually do by reading them rather than guessing from filenames. Never read `.env` or secret/credential files.
+2. **AI instruction files (any depth):** `AGENTS.md`, `.claude/AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `.claude/settings.json` (config inventory only), `.cursorrules`, `.cursor/rules/`, `.github/copilot-instructions.md`, `.github/instructions/`, `.windsurfrules`, `GEMINI.md`, `.ai/`. Skip `.claude/skills/`. Treat legacy `.ai/.ground-rules.json` and `ground-rules:managed` comments as cleanup targets, never provenance. Fetch current official loading/scope/precedence docs for each detected format and display a compact precedence table before claiming a conflict or proposing deletion; if official behavior cannot be verified, mark precedence unknown and preserve the file unless asked. Separate machine-local overrides—files designated local by format or filename (`CLAUDE.local.md`, `*.local.md`, `.claude/settings.local.json`), gitignored AI files, or untracked personal/machine-path overrides: report them separately, and never audit, migrate, edit, delete, or commit them unless explicitly asked.
+3. **`docs/` & `docs/todo/`:** filenames, cross-links, and open vs ticked to-do items (recording items proven complete in code for Step 4; leave uncertain items open).
 4. **Git state:** branch, remote/upstream, staged changes, and unstaged changes. Never stage pre-existing work.
 5. **Classification:**
    - *Convention structure:* `canonical` (`AGENTS.md` <= 150 lines, resolving `.ai/*.md` pointers, all detailed rules indexed in `.ai/`), `partial` (broken pointers, unreachable `.ai/` files, root > 150 lines, or detailed domain rules embedded in `AGENTS.md`), `alternate-only` (only non-canonical shared AI files), or `none`.
@@ -76,18 +76,18 @@ Show a compact 3-row table (`reads` | `may write` | `decisions revisited` | `typ
 - **Canonical or partial** (with or without additional shared formats):
   - **Focused update (Recommended)**: validate current files against commands, paths, configs, citations, precedence, and contradictions. Treat coherent existing Markdown, absent optional topics/settings, and existing `docs/` names/classifications as settled team policy—ask only about concrete defects, contradictions, or new manifest/tool gaps, and never rewrite coherent prose or headings for style. In additional shared formats, report equivalent or non-conflicting scoped rules without re-interviewing them.
   - **Full re-audit**: run Steps 3–10 across every rule.
-  - **Validate only**: run read-only checks (Steps 3, 7.3, 9), report findings, and stop without writing or committing.
+  - **Validate only**: run read-only checks (Steps 3, 7.3, and Step 9's read-only review agent without offering `docs/todo/` writes), then finish with Step 10's `## Ground Rules final report` without writing or committing.
 - **Alternate-only**:
-  - **Migrate interactively (Recommended)**, **Audit only** (read-only verdict report), or **Leave unchanged** (report precedence over `AGENTS.md` and stop).
+  - **Migrate interactively (Recommended)**, **Audit only** (read-only verdict report ending with `## Ground Rules final report`), or **Leave unchanged** (report precedence over `AGENTS.md` and end with `## Ground Rules final report`).
 
 For pre-code repos with AI files, ask Step 2 project intent/tooling before auditing foreign claims in Step 3.
 
 ## Step 2: Empty and pre-code repositories
 
-1. Ask in plain text what the project builds (goal, intended users, expected stack, open questions). If the language remains open, ask up to 3 plausible languages plus **Undecided** before drafting the sketch.
+1. Ask in plain text what the project builds (goal, intended users, expected stack, open questions). Never invent undecided users or requirements. If the language remains open, ask up to 3 plausible languages plus **Undecided** before drafting the sketch.
 2. Draft `docs/first-sketch_<today>.md` starting with:
    > **Initial sketch, not a source of truth.** Written on <today> before any code existed. Plans change; check `.ai/` and the code for what is actually decided.
-   List every explicitly unresolved stack, format, or tooling question under **Open questions** (never write `"None"` while choices remain open). Show the draft and ask `Apply / Skip`.
+   List every explicitly unresolved user, product, format, stack, or tooling question under **Open questions** (never write `"None"` while choices remain open). Show the draft and ask `Apply / Skip`.
 3. When a language is chosen without a manifest or package manager, ask:
    - **Document rules only (Recommended)**: create no manifest, dependencies, or commands; later interviews cover tool-agnostic rules only and never ask for frameworks or write commands in `AGENTS.md` or `.ai/`.
    - **Bootstrap tooling**: choose package manager and minimal manifest/config in the next turn.
@@ -100,55 +100,56 @@ In **Focused update**, inspect only for contradictions, broken commands/paths/po
 In **Full re-audit** or **Migrate interactively**, present every rule of each file in a table (splitting tables over 15 rows under subheadings so nothing is hidden) with a ~8-word reason and one verdict:
 
 - **Keep**: specific, accurate, matches repo and scope.
-- **Rewrite**: sound intent, vague or inaccurate wording.
+- **Rewrite**: sound intent, vague or inaccurate wording (including bare stdin-reading or write-mode commands rewritten to read-only check flags).
 - **Enforce**: belongs in tool config (becomes a 1-line pointer in Step 7 if already enforced, or a Step 6 enforcement question if not yet configured).
 - **Move**: rationale or plan that belongs in `docs/` (record target living/snapshot type and path; confirm full draft once in Step 7 before deleting source).
 - **Delete**: false, obsolete, contradicts repo/policy, duplicates tool defaults, or dictates AI chat tone.
 
-State whether leaving the file overrides `AGENTS.md`, then ask per file: **Use these verdicts (Recommended)**, **Review rule by rule**, or **Leave file untouched** (excludes from migration/deletion; record any active conflict). Also ask whether to keep any existing weakened lint/compiler setting (e.g. a disabled rule).
+State whether leaving the file overrides `AGENTS.md`, then ask per file: **Use these verdicts (Recommended)**, **Review rule by rule** (asks structured per-rule verdict questions, batched up to 4 per call), or **Leave file untouched** (excludes from migration/deletion; record any active conflict).
 
-Preserve each imported rule's directory or glob scope (`Applies to: <repo-relative path or glob>` after `Last reviewed` in `.ai/`, or leave valid narrowly scoped files such as nested `AGENTS.md` or path-scoped `.github/instructions/*.md` in place at their original scope unless the user chooses to broaden them).
+Default `(Recommended)` to keeping valid narrowly scoped files (nested `AGENTS.md`, path-scoped `.github/instructions/*.md`, valid scoped `.cursor/rules/*.mdc`) in place at their original path and scope—leaving all-`Keep` files byte-for-byte untouched and applying any accepted in-place `Rewrite`/`Delete` diff without migrating or deleting the file. Consolidate a scoped rule into `.ai/` (with `Applies to: <repo-relative path or glob>` right after `Last reviewed`) only when the user explicitly chooses consolidation, and delete a scoped file only when all of its rules receive `Delete` or `Move` verdicts. Never broaden a narrow scope without approval.
 
 ## Step 4: Tidy `docs/`
 
+In non-read-only runs (excluding **Focused update** unless new completion evidence exists), if Step 1 found open `docs/todo/` items proven complete in code, offer one `Apply / Skip` confirmation to tick `[x]` on those items, leaving all other snapshot lines untouched.
+
 When `docs/` exists or Step 2 created a sketch:
 - In bootstrap, migration, or full re-audit without an existing docs policy, ask:
-  - **Snapshot + living docs (Recommended)**: show the proposed `AGENTS.md` Docs bullets (naming Step 2's exact sketch path as a possibly outdated snapshot when created); note this is Ground Rules' maintainability convention.
+  - **Snapshot + living docs (Recommended)**: in the message body above the question, display the exact proposed `AGENTS.md` `## Docs` bullets—dated immutable `_YYYY-MM-DD.md` snapshots (except `[x]` in `docs/todo/`), undated living docs with `Last reviewed: YYYY-MM-DD`, and any concrete read-trigger (including checking `docs/` starting with Step 2's exact `docs/first-sketch_<today>.md` labeled a possibly outdated snapshot when created). Never add undisplayed `## Docs` rules later in Step 7, and add read-triggers to renamed living docs only at their approved final destination (never for unclassified `Normalize filename only` files). Note this is Ground Rules' maintainability convention.
   - **Pointers only**: read-trigger pointers to existing docs without naming/immutability rules.
   - **Custom policy**: user-specified rules.
-- In **Focused update**, preserve the presence or absence of a Docs section and leave existing unclassified or nonconforming `docs/` names untouched unless a collision, broken link, new evidence, or user request requires a decision.
+- In **Focused update**, preserve the presence or absence of a `## Docs` section and leave existing unclassified or nonconforming `docs/` names untouched unless a collision, broken link, new evidence, or user request requires a decision.
 
-When `docs/` filenames break the active convention:
+After a naming policy is chosen, when `docs/` filenames break it:
 1. Build the case-insensitive final-path map first; block `Apply` on any colliding destination until resolved. Show a table of nonconforming files (`current` | `proposed` | `type`).
 2. Ask one rename question per nonconforming file (batched up to 4 per call), starting each option description with `→ <final-name>`:
-   - Derive date options from filename/content (`12.03` -> offer both readings; `"January 2026"` -> `2026-01-01` with `Date approximate (...)`). Offer first-commit date only when `docs/` files have distinct first-commit dates.
-   - When snapshot date is unknown, offer **Keep current name (Recommended)**, **Use naming date** (adds `Date approximate (original date unknown; named on <today>).`), and **Treat as living doc** (only if actively maintained; adds `Last reviewed`).
-   - When document type is unknown and only letter case, spaces/separators, or `.MD` extension violate naming (no date token, copy suffix, or collision), also offer **Normalize filename only** (`→ <lowercase-hyphenated>.md`), leaving body, type, and date metadata unchanged and reporting it as unclassified.
-3. Execute approved renames without staging (using a two-step temporary rename for case-only changes on case-insensitive filesystems), verify destinations before writing pointers, and update references across living docs, AI files, and configs (report stale links inside immutable snapshots or application code without editing them).
+   - Always include **Keep current name** on every rename question, and make **Keep current name (Recommended)** the first option whenever a date is unknown or ambiguous (e.g. `12.03` -> **Keep current name (Recommended)** plus both date readings; when completely unknown -> **Keep current name (Recommended)**, **Use naming date** adding `Date approximate (original date unknown; named on <today>).`, and **Treat as living doc** only if actively maintained). Derive clear approximate dates from text (`"January 2026"` -> `2026-01-01` with `Date approximate (...)`); offer first-commit date only when `docs/` files have distinct first-commit dates.
+   - When living-vs-snapshot type is unclear (including titles with status words like `FINAL`) and the name has no date token, numbered duplicate suffix like `(1)`, or collision (only letter case, spaces/separators, status words, or `.MD` extension), also offer **Normalize filename only** (`→ <lowercase-hyphenated>.md`), leaving body, type, and date metadata unchanged and reporting it as unclassified.
+3. Execute approved renames without staging (never `git mv`; use a two-step temporary rename for case-only changes on case-insensitive filesystems), verify destinations before writing pointers, and update references across living docs, AI files, and configs (report stale links inside immutable snapshots or application code without editing them).
 
 ## Step 5: Propose `.ai/` structure and files
 
 In **Focused update**, keep the current `.ai/` layout unless repairing a structural defect (such as domain rules embedded in root `AGENTS.md`), adding a newly requested domain, or splitting a file over ~300 lines.
 
-In bootstrap, migration, or full re-audit, batch structure and file selection concisely:
-1. **Structure:** **Focused files (Recommended)** (one `.ai/<topic>.md` per approved domain, created only if >=1 rule is approved), **Compact file** (`.ai/project.md` under 300 lines), or **Custom structure** (include **Stack is still changing** when tech-stack stability is unclear so `.ai/tech-stack.md` is omitted cleanly). Omit language-dependent files when language is **Undecided**.
-2. **Candidate `.ai/` files:** Multi-select of domain files warranted by repo evidence and Step 3 verdicts (e.g. `.ai/architecture.md`, `.ai/code-style.md`, `.ai/testing.md`, `.ai/security.md`), naming each candidate's exact `.ai/<file>.md` path and scope, with at most 3 candidates plus **No topics for now** per question (or a 2-option choice `<candidate>` vs **No topics for now** when only one exists). Omitted candidates are declined and never re-offered, and approved mappings are never silently split into extra files.
+In bootstrap, migration, or full re-audit, batch structure and file selection concisely in one call:
+1. **Structure:** **Focused files (Recommended)** (one `.ai/<topic>.md` per approved domain, created only if >=1 rule is approved), **Compact file** (`.ai/project.md` under 300 lines), or **Custom structure**. Omit language-dependent files when language is **Undecided**. When tech-stack stability is unclear, ask whether **Stack is still changing** (omitting `.ai/tech-stack.md` when chosen).
+2. **Candidate `.ai/` files:** Multi-select of domain files warranted by repo evidence and Step 3 verdicts (e.g. `.ai/architecture.md`, `.ai/code-style.md`, `.ai/testing.md`, `.ai/security.md`), naming each candidate's exact `.ai/<file>.md` path and scope, with at most 3 candidates plus **No topics for now** per question (or a 2-option choice `<candidate>` vs **No topics for now** when only one exists). Unselected displayed candidates are declined and never re-offered, and approved mappings are never silently split into extra files.
 
 ## Step 6: Interview, file by file
 
 Work through every approved `.ai/` file (skipping unchanged files in **Focused update**):
 
-1. **Topics.** Multi-select of specific rule topics for this file (up to 3 candidates + **No topics for now** per question), noting any Step 3 rules already accepted for it. Unselected displayed topics are declined; ask a split follow-up only for not-yet-displayed candidates when **No topics for now** was not chosen. Honor free-text topics in full. Interview **only** rule families within selected topic boundaries; omit the file and its `AGENTS.md` pointer if zero rules end up approved.
-2. **Rules (industry standards first, batched up to 4 questions per call).** Fetch official primary sources and offer up to 4 distinct options:
-   - **Best practice `(Recommended)`**: official language/framework/tool standard with URL. When a cohesive official guide covers mechanical conventions, prefer recommending that standard cleanly rather than fragmenting into micro-questions.
-   - **Common in the ecosystem**: mainstream practice when distinct from official docs.
-   - **Current in this repo**: actual pattern with file counts and honest quality note (merge with Best practice if identical; omit in empty repos).
-   - **Alternative** or **Your preference (personal config)** (when applicable).
-   - **Project decision** (architecture boundaries, folder conventions, un-sourced team rules): state there is no external source, include **No rule** among the up to 4 options, and keep high-level boundary rules separate from prescriptive folder/library choices unless requested. Keep rules at the abstraction level selected—never inject unapproved libraries, test doubles, or implementation techniques.
-   - **Rollout timing:** When a chosen rule conflicts with existing code or checks, ask **From now on (Recommended)** vs **After migration** (`After migration.` is the sole deferred marker; deferred rules never claim active checking/CI and get a `docs/todo/` entry).
-3. **Enforcement.** Point to existing active tool checks in one option (no fake "not enforced" variant unless showing the config-weakening diff). For unconfigured installed tools, offer enforced (with minimal config diff) vs unenforced; ask new package installs one turn before their config diff. Note if existing code will fail the check.
-4. **Open round.** For newly created or re-audited files, ask **No more rules (Recommended)** vs **Suggest some** (free-text adds custom rules, sharpened and confirmed via `Apply / Skip`).
-5. **Run-local decision record.** Track each authorized rule's ID, `.ai/` destination, scope, exact wording, origin (`existing team policy`, `explicit answer`, `Keep/Rewrite verdict`, `Delete verdict`, `enforcement pointer`, or `review fix`), and checking config or fetched `URL` + verbatim supporting sentence for Step 9. Never write this record into repository files.
+- **6.1 Topics.** Multi-select of specific rule topics for this file (up to 3 candidates + **No topics for now** per question), noting any Step 3 rules already accepted for it. Unselected displayed topics are declined; ask a split follow-up only for not-yet-displayed candidates when **No topics for now** was not chosen. Honor free-text topics in full. Interview **only** rule families within selected topic boundaries; omit the file and its `AGENTS.md` pointer if zero rules end up approved.
+- **6.2 Rules (industry standards first, batched up to 4 questions per call).** Fetch official primary sources and offer up to 4 distinct options:
+  - **Best practice `(Recommended)`**: official language/framework/tool standard with URL. When a cohesive official guide covers mechanical conventions, prefer recommending that standard cleanly rather than fragmenting into micro-questions.
+  - **Common in the ecosystem**: mainstream practice when distinct from official docs.
+  - **Current in this repo**: actual pattern with file counts and honest quality note (merge with Best practice if identical; omit in empty repos).
+  - **Alternative** or **Your preference (personal config)** (when applicable).
+  - **Project decision** (architecture boundaries, folder conventions, un-sourced team rules): state there is no external source, and keep high-level boundary rules separate from prescriptive folder/library choices unless requested. Include **No rule** (writes no prose rule for that subtopic) on every **Project decision** question and on any optional strictness, gradual-typing, or tool-adjacent prose question where omitting a written rule is a valid team choice. Keep rules at the abstraction level selected—never inject unapproved libraries, test doubles, or implementation techniques.
+  - **Rollout timing:** When a chosen rule conflicts with existing code or checks, ask **From now on (Recommended)** (applies to new and changed code immediately; existing code violations go to `docs/todo/`) vs **After migration** (`After migration.` is the sole deferred marker; deferred rules never claim active checking/CI and get a `docs/todo/` entry).
+- **6.3 Enforcement.** Point to existing active tool checks in one option (no fake "not enforced" variant unless showing the config-weakening diff). Within audited rules or selected topics, never silently tighten or contradict an existing disabled or non-strict tool setting (e.g. disabled lint rule or partial typechecker)—ask whether to keep it as-is, and never ask about tool settings for declined files or topics. For unconfigured installed tools, offer enforced (with minimal config diff) vs unenforced; ask new package installs one turn before their config diff. Note if existing code will fail the check.
+- **6.4 Open round.** For newly created or re-audited files, ask **No more rules (Recommended)** vs **Suggest some** (free-text adds custom rules, sharpened and confirmed via `Apply / Skip`).
+- **6.5 Run-local decision record.** Track each authorized rule's ID, `.ai/` destination, scope, exact wording, origin (`existing team policy`, `explicit answer`, `Keep/Rewrite verdict`, `Delete verdict`, `enforcement pointer`, or `review fix`), and checking config or fetched `URL` + verbatim supporting sentence for Step 9. Never write this record into repository files.
 
 ## Step 7: Write the files
 
@@ -163,6 +164,7 @@ Last reviewed: <today>
 
 ## Commands
 
+<Omit section when no valid commands exist, e.g. Document rules only.>
 All commands: <manifest or task runner, e.g. `package.json`, `Taskfile.yml`, `Cargo.toml`>. Most used:
 
 - `<install>`
@@ -176,7 +178,7 @@ All commands: <manifest or task runner, e.g. `package.json`, `Taskfile.yml`, `Ca
 
 ## Rules
 
-<Include only when >=1 rule is marked `After migration.`: `Rules apply to new and changed code, unless marked "After migration.". Existing code may not follow them yet.`>
+<Include `Rules apply to new and changed code. Existing code may not follow them yet.` when existing code violates active `From now on` rules, or `Rules apply to new and changed code, unless marked "After migration.". Existing code may not follow them yet.` when >=1 rule is marked `After migration.`. Omit in empty repos or when no rollout gap exists.>
 
 Detailed rules live in `.ai/`. Read the matching file before working in that area:
 
@@ -186,7 +188,7 @@ Detailed rules live in `.ai/`. Read the matching file before working in that are
 
 ## Docs
 
-<Include only accepted Step 4 Docs statements; omit section if none.>
+<Include only accepted Step 4 Docs statements or an approved Step 9 `docs/todo/` pointer; omit section if none.>
 ```
 
 Each `.ai/*.md` file (at most 300 lines):
@@ -205,23 +207,23 @@ Last reviewed: <today>
 ```
 
 Writing invariants:
-- **Command & CI accuracy:** Every published command must have valid repository wiring (manifests, scripts, configs, covered workspaces). Group multi-project commands by area when no valid root aggregate covers all packages.
-  - *Missing machine executable* (repo wiring exists, tool absent/sandboxed locally): keep the command and record `not run here: <reason>` in Step 10—never treat machine absence as repo migration work.
-  - *Known baseline failure* (valid command fails on existing code): disclose the baseline failure beside the command in `AGENTS.md` (and in any `.ai/` pointer that names it, or prefer a passing scoped check) and track it in `docs/todo/`.
-  - *Missing/broken project wiring* (missing script, dependency, or broken aggregate target): omit from `AGENTS.md` and active `.ai/` pointers; report as an open problem (or record in `docs/todo/` only if the user deferred wiring it).
-  - *CI claims:* Use `Enforced in CI by` (replacing `Checked by`) **only** when a structurally valid required CI workflow (`on` trigger, runnable job/`runs-on`, step running that exact check) is verified; treat incomplete workflows as local-only (`Checked by`) and report the workflow defect.
+- **Command & CI accuracy:** Every published command must have valid repository wiring (manifests, declared third-party dependencies, scripts, configs, covered workspaces) and use non-mutating check flags (`gofmt -d .`, `prettier --check .`, `cargo fmt --all --check`—never bare stdin-reading `gofmt` or write/fix flags). Group multi-project commands by area when no valid root aggregate covers all packages.
+  - *Missing machine executable* (repo manifests/wiring exist, tool absent/sandboxed locally): keep the command and record `not run here: <reason>` in Step 10—never treat machine absence as repo migration work.
+  - *Known baseline failure* (valid command fails on existing code): disclose the baseline failure beside the command in `AGENTS.md` and inside any `.ai/` terminal marker that names it (e.g. ``Checked by: `<tool> (<config>; <command>, baseline currently failing)` ``, or prefer a passing scoped check), and track it in `docs/todo/`.
+  - *Missing/broken project wiring* (missing script, undeclared tool dependency in manifest, or broken aggregate target): omit from `AGENTS.md` and active `.ai/` pointers; report as an open problem (or record in `docs/todo/` only if the user deferred wiring it).
+  - *CI claims:* Use `Enforced in CI by` (replacing `Checked by`) **only** when a structurally valid required CI workflow (`on` trigger, runnable job/`runs-on`, step running that exact check) is verified; treat incomplete workflows as local-only (`Checked by`) and report the workflow defect as an open problem in Step 10 (never a `docs/todo/` entry unless fixing CI was explicitly deferred).
 - **One terminal marker, zero prose duplication:** Every `.ai/` rule ends with **one** marker (`Enforced in CI by`, `Checked by`, `Source`, or `Project decision`—never prefixed with `Basis:` and never combined). Tool pointers never list configured values (quotes, line length, rule IDs) in prose. Use `Source: <URL>` only when the recorded sentence entails the full rule; otherwise use `Project decision`.
 - **Durable facts only:** Never copy exact package versions, file counts, or inventories that live in manifests/configs (major-version upper bounds only when material). `AGENTS.md` indexes `.ai/` without duplicating detailed rules. Leave `Last reviewed` and file bytes untouched on a zero-change **Focused update**.
 
 Execute in order:
-1. **Confirm drafts:** Show complete new/rewritten drafts (or minimal diffs in **Focused update**) and batch `Apply / Skip` confirmations (up to 4 files per call). Skipping a new `.ai/` file drops its `AGENTS.md` pointer (if it had dedicated config/dependency approvals, ask `Retain` / `Cancel`).
-2. **Dependencies & configs:** Install approved dependencies via the repo's package manager; on failure, restore manifests/lockfiles, clean created artifacts, and ask **Keep rule unenforced (Recommended)**, **Drop the rule**, or **Stop for environment fix**. Apply approved tool configs and non-secret example files.
-3. **Run checks safely:** Run only literal, read-only check commands (`gofmt -l`, `cargo fmt --all --check`, `--noEmit`). Never run fix/write modes, shell loops/`eval`/`xargs`, copy the repo to `/tmp`, or redirect tool caches (`GOCACHE`, etc.). If a check's write safety is uncertain or sandboxed, skip running it and record `not run here: <reason>`. Snapshot and restore any unexpected check artifacts.
-4. **Write Markdown, deletions & cleanup:** Write approved Markdown (re-confirming if dependency recovery altered policy). Offer `Apply / Skip` to delete obsolete migrated shared AI files (never local overrides unless asked), without staging. Remove legacy `.ai/.ground-rules.json` or `ground-rules:managed` markers via approved diffs.
+- **7.1 Confirm drafts:** Show complete new/rewritten drafts (or minimal diffs for **Focused update**, `docs/` Move targets, and in-place scoped AI file fixes) and batch `Apply / Skip` confirmations (up to 4 files per call). Skipping a new `.ai/` file drops its `AGENTS.md` pointer (if it had dedicated config/dependency approvals, ask `Retain` / `Cancel`).
+- **7.2 Dependencies & configs:** Install approved dependencies via the repo's package manager; on failure, restore manifests/lockfiles, clean created artifacts, and ask **Keep rule unenforced (Recommended)**, **Drop the rule**, or **Stop for environment fix**. Apply approved tool configs and non-secret example files.
+- **7.3 Run checks safely:** Run only literal, read-only check commands (`gofmt -l`, `cargo fmt --all --check`, `--noEmit`). Never run fix/write modes, shell loops/`eval`/`xargs`, copy the repo to `/tmp`, or redirect tool caches (`GOCACHE`, etc.). If a check's write safety is uncertain or sandboxed, skip running it and record `not run here: <reason>`. Snapshot and restore any unexpected check artifacts.
+- **7.4 Write Markdown, deletions & cleanup:** Write approved Markdown (re-confirming if dependency recovery altered policy). After canonical files and any accepted `docs/` Move targets exist on disk, offer `Apply / Skip` to delete obsolete shared AI files (foreign files whose rules were all migrated or deleted, or superseded `.ai/*.md` files—never files kept in place at narrower scope, skipped via `Leave file untouched`, or machine-local overrides unless asked), without staging (never `git rm`). Remove legacy `.ai/.ground-rules.json` or `ground-rules:managed` markers via approved diffs.
 
 ## Step 8: Claude Code permissions
 
-Only when shared `.claude/` config already exists or the user confirms team Claude Code usage (and never unprompted when absent during **Focused update**), offer merging `"Edit(/AGENTS.md)"` and `"Edit(/.ai/**)"` into `permissions.ask` in `.claude/settings.json` (source: https://code.claude.com/docs/en/permissions). Skip without asking if path-equivalent entries already exist; otherwise preserve all existing keys, show the diff, and ask `Apply / Skip`.
+Only when shared `.claude/` directory config (`.claude/settings.json`, `.claude/CLAUDE.md`, `.claude/rules/`) already exists in the repository, or the user explicitly asked for Claude Code permissions in this run (never ask unprompted whether the team uses Claude Code, and never infer it solely from a migrated root `CLAUDE.md`), offer merging `"Edit(/AGENTS.md)"` and `"Edit(/.ai/**)"` into `permissions.ask` in `.claude/settings.json` (source: https://code.claude.com/docs/en/permissions). Skip without asking if path-equivalent entries already exist; otherwise preserve all existing keys, show the diff, and ask `Apply / Skip`.
 
 ## Step 9: Migration to-do and review by a fresh agent
 
@@ -239,7 +241,7 @@ Written on <today>. Tick items when done; put new items in a new dated file.
 | [ ] | `<path>` | <violation or baseline failure> | [<rule>](../../.ai/<file>.md) or Baseline command: `<command>` |
 ```
 
-If applied, confirm a minimal diff adding `"Open migration tasks are in docs/todo/."` under `AGENTS.md` Docs (and optional Workflow tick note). If the user skips a to-do required by a deferred rule or deferred command, ask whether to **Drop** that deferred item or **Stop and restore** this run's policy changes.
+If applied, confirm a minimal diff adding ``- Open migration tasks are in `docs/todo/`.`` under `AGENTS.md` `## Docs` (creating a minimal `## Docs` section with only that bullet if none exists) and, only when displayed and approved, ``- When you finish a migration item listed in `docs/todo/`, tick it there.`` under `## Workflow`. If the user skips a to-do required by a deferred rule or deferred command, ask whether to **Drop** that deferred item or **Stop and restore** this run's policy changes.
 
 Launch **one** fresh read-only review agent (`eval-reviewer` when available, otherwise a read-only `general-purpose` subagent) that sees **only** the repository, changed file paths, and sanitized Step 6.5 decision/move/delete records—never the interview transcript. Ask it to report `file:line` + quote findings (`blocker`, `major`, `deterministic-minor`, `stylistic-nitpick`) against:
 - Active contradictions across `AGENTS.md`, `.ai/*.md`, and tool configs; duplicated rules across files or restated tool settings in prose.
@@ -247,7 +249,7 @@ Launch **one** fresh read-only review agent (`eval-reviewer` when available, oth
 - Invalid commands, false `Enforced in CI by` claims, undisclosed baseline failures, machine-local tool absences misrecorded as repo to-dos, or unsupported `Source` / `Why` claims.
 - Size limits (`AGENTS.md` > 150, `.ai/*.md` > 300), missing `Last reviewed`, broken pointers, unreachable `.ai/` files, or leftover ownership markers.
 
-Verify every finding yourself against the files and decision record; list discarded false positives in one line each. Present confirmed items under **1. Fixes to written files** (multi-select), **2. Needs a decision**, **3. Code that breaks the new rules**, and **4. Outside scope**. Apply approved fixes, re-read changed files yourself to confirm zero remaining defects, and record any user-retained defect under **Open conflicts** (never report `Open conflicts: none` when one remains).
+Verify every finding yourself against the files and decision record; list discarded false positives in one line each (and in **Focused update**, silently discard `stylistic-nitpick` items on unchanged prose or headings). If confirmed findings remain, present them under **1. Fixes to written files** (multi-select, labeling severity), **2. Needs a decision**, **3. Code that breaks the new rules**, and **4. Outside scope**. Apply approved fixes, re-read changed files yourself to confirm zero remaining defects, and record any user-retained deterministic defect (`blocker`, `major`, or `deterministic-minor`—never declined `stylistic-nitpick` items) under **Open conflicts** (never report `Open conflicts: none` when one remains).
 
 ## Step 10: Commit and report
 

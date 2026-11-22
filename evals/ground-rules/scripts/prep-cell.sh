@@ -82,11 +82,11 @@ verify_repo_pointer() {
 }
 
 init_repo_with_baseline() {
-  git init --quiet --template= --separate-git-dir="$GIT_DIR" "$WORKSPACE" || die "git init failed; cell left as is"
+  git init --quiet --template= --separate-git-dir="$GIT_DIR" "$WORKSPACE" || fail_clean "git init failed"
   verify_repo_pointer
 
   fgit add -A
-  fgit commit --quiet -m "Fixture baseline" || die "baseline commit failed (is a Git identity configured?)"
+  fgit commit --quiet -m "Fixture baseline" || fail_clean "baseline commit failed (is a Git identity configured?)"
 }
 
 plant_legacy_edits() {
@@ -159,10 +159,11 @@ open(sys.argv[3], "w").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.tx
   rm -f "$WORKSPACE/.git"
   init_repo_with_baseline
 
-  local review_changed
-  review_changed=$(python3 -I -c 'import datetime,re,sys
+  local review_info review_changed had_trailing_nl
+  review_info=$(python3 -I -c 'import datetime,re,sys
 p = sys.argv[1]
 text = open(p).read()
+had_nl = 0 if (text and not text.endswith("\n")) else 1
 today = datetime.datetime.now(datetime.timezone.utc).date()
 m = re.search(r"(?m)^Last reviewed: (\d{4}-\d{2}-\d{2})$", text)
 if not m:
@@ -171,28 +172,31 @@ try:
     reviewed = datetime.date.fromisoformat(m.group(1))
 except ValueError:
     sys.exit(2)
-if reviewed > today:
+# Allow +1 day for local-midnight timezone offset ahead of UTC
+if reviewed > today + datetime.timedelta(days=1):
     sys.exit(3)
-if reviewed == today:
-    print(0)
+if reviewed >= today:
+    print(f"0 {had_nl}")
 else:
     text = text[:m.start(1)] + today.isoformat() + text[m.end(1):]
     open(p, "w").write(text)
-    print(1)' "$WORKSPACE/$match") || fail_clean "the update target file lacks a valid Last reviewed date"
+    print(f"1 {had_nl}")' "$WORKSPACE/$match") || fail_clean "the update target file lacks a valid Last reviewed date"
+  review_changed="${review_info% *}"
+  had_trailing_nl="${review_info#* }"
   append_line "$WORKSPACE/$match" "$rule"
-  local changed stat
+  local changed stat expected_ins expected_del
   changed=$(fgit diff --name-only)
   [ "$changed" = "$match" ] || fail_clean "unexpected changes after appending the rule: $changed"
   stat=$(fgit diff --numstat)
-  if [ "$review_changed" -eq 0 ]; then
-    [ "$stat" = "1"$'\t'"0"$'\t'"$match" ] || fail_clean "the rule must add exactly one line; got: $stat"
-  else
-    [ "$stat" = "2"$'\t'"1"$'\t'"$match" ] || fail_clean "the rule and review date must be the only changes; got: $stat"
-  fi
+  expected_ins=$((1 + review_changed + (1 - had_trailing_nl)))
+  expected_del=$((review_changed + (1 - had_trailing_nl)))
+  [ "$stat" = "${expected_ins}"$'\t'"${expected_del}"$'\t'"$match" ] \
+    || fail_clean "unexpected diff stat on update rule append; got: $stat"
   fgit add -- "$match"
   fgit commit --quiet -m "Maintainer policy addition" || fail_clean "maintainer commit failed"
 
   printf '%s\n%s\n' "$match" "$rule" > "$CELL/maintainer-rule.txt"
+  chmod 444 "$CELL/maintainer-rule.txt"
 }
 
 if [ "$STATE" = "update" ]; then
@@ -236,6 +240,9 @@ mkdir -p "$CELL/initial-workspace"
 copy_tree "$WORKSPACE" "$CELL/initial-workspace"
 rm -f "$CELL/initial-workspace/.git"
 write_tree_manifest "$CELL/initial-workspace" "$CELL/pre-initial-workspace-manifest.txt"
+for f in "$CELL"/pre-* "$CELL/initial-files.txt"; do
+  [ -f "$f" ] && chmod 444 "$f"
+done
 
 echo "prepared $SCENARIO/$STATE in $1"
 echo "head: $(cat "$CELL/pre-head.txt")"

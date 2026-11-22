@@ -1,21 +1,19 @@
 #!/bin/bash
-# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|workflow-review|apply-fs|git-inspect|transcript|maintainer-answers> [arg1] [arg2]
+# Usage: step-turn.sh <run-id> <scenario> <state> <lock-agents|target|persona|workflow-review|apply-fs|git-inspect> [arg1] [arg2]
 # Script-owned turn processor and append-only audit logger:
 #   lock-agents <target-id> <persona-id>
 #     Writes <cell>/agent-ids.json once and locks it read-only.
 #   target
-#     Reads <cell>/staging/target-turn.txt (or <cell>/pending-transcript.md), strips markdown
-#     code fences if present, validates the target JSON schema, verifies workspace safety,
-#     defaults missing affectedPaths/draftFiles on options to [], appends the resulting
-#     canonical JSON line to transcript.md, auto-answers purely mechanical
-#     lifecycle prompts when unambiguous, and writes <cell>/staging/next-step.json.
+#     Reads <cell>/staging/target-turn.txt, strips markdown code fences if present,
+#     validates the target JSON schema, verifies workspace safety, defaults missing
+#     affectedPaths/draftFiles on options to [], appends the resulting canonical JSON line
+#     to transcript.md, auto-answers purely mechanical lifecycle prompts when unambiguous,
+#     and writes <cell>/staging/next-step.json.
 #   persona
 #     Reads <cell>/staging/persona-turn.txt, validates the persona JSON schema against the
 #     last unanswered target turn, appends accepted entries to maintainer-answers.ndjson, compiles
 #     deduplicated maintainer-answers.json, and writes the target relay payload to
 #     <cell>/staging/next-step.json.
-#   transcript | maintainer-answers
-#     Direct append compatibility for pending-transcript.md / pending-maintainer-answers.ndjson.
 
 . "$(dirname "$0")/common.sh"
 
@@ -26,14 +24,6 @@ STATE="$3"
 MODE="$4"
 [ -d "$CELL" ] || die "no such cell: $CELL"
 mkdir -p "$CELL/staging"
-
-append_newline_safe() {
-  local src="$1" dst="$2"
-  if [ -s "$dst" ] && [ "$(tail -c1 "$dst" | od -An -c | tr -d ' ')" != '\n' ]; then
-    echo >> "$dst"
-  fi
-  cat "$src" >> "$dst"
-}
 
 compile_answers_json() {
   python3 -I -c 'import json,os,sys
@@ -68,28 +58,8 @@ with open(sys.argv[3], "w") as f:
     echo "locked agent-ids.json"
     ;;
 
-  transcript)
-    PENDING="$CELL/pending-transcript.md"
-    [ -s "$PENDING" ] || die "no pending content: $PENDING"
-    append_newline_safe "$PENDING" "$CELL/transcript.md"
-    rm "$PENDING"
-    echo "appended to transcript.md"
-    ;;
-
-  maintainer-answers)
-    PENDING="$CELL/pending-maintainer-answers.ndjson"
-    [ -s "$PENDING" ] || die "no pending content: $PENDING"
-    append_newline_safe "$PENDING" "$CELL/maintainer-answers.ndjson"
-    rm "$PENDING"
-    compile_answers_json
-    echo "appended to maintainer-answers.ndjson"
-    ;;
-
   target)
     INPUT="$CELL/staging/target-turn.txt"
-    if [ ! -s "$INPUT" ] && [ -s "$CELL/pending-transcript.md" ]; then
-      INPUT="$CELL/pending-transcript.md"
-    fi
     [ -s "$INPUT" ] || die "no target turn input at $INPUT"
     verify_git_safety || die "workspace Git safety check failed on target turn"
 
@@ -118,7 +88,7 @@ except Exception as exc:
         "resumeRole": "target",
         "resumeAgentId": agent_ids.get("target"),
         "reason": f"invalid JSON: {exc}",
-        "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, as a single valid JSON object in the required target format."
+        "retryPrompt": "Re-emit your previous response, unchanged in substance, as a single valid JSON object matching one of the allowed target schemas."
     })
     raise SystemExit(0)
 
@@ -128,7 +98,7 @@ if not isinstance(obj, dict) or "status" not in obj:
         "resumeRole": "target",
         "resumeAgentId": agent_ids.get("target"),
         "reason": "missing status key",
-        "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, as a single valid JSON object in the required target format."
+        "retryPrompt": "Re-emit your previous response, unchanged in substance, as a single valid JSON object with a valid status key."
     })
     raise SystemExit(0)
 
@@ -145,34 +115,48 @@ if status == "needs-answer":
         })
         raise SystemExit(0)
     for idx, q in enumerate(qs, 1):
-        if not isinstance(q, dict) or not isinstance(q.get("text"), str) or not isinstance(q.get("options"), list) or not q.get("options"):
+        if not isinstance(q, dict) or not isinstance(q.get("text"), str) or not q["text"].strip() or not isinstance(q.get("options"), list) or not q.get("options"):
             write_next({
                 "action": "RETRY_TARGET_FORMAT",
                 "resumeRole": "target",
                 "resumeAgentId": agent_ids.get("target"),
                 "reason": f"question {idx} lacks valid text or options array",
-                "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every question object includes text and a non-empty options array."
+                "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every question object includes non-empty text and options."
             })
             raise SystemExit(0)
+        seen_opts = set()
         for opt in q["options"]:
-            if not isinstance(opt, dict) or not isinstance(opt.get("text"), str):
+            if not isinstance(opt, dict) or not isinstance(opt.get("text"), str) or not opt["text"].strip() or opt["text"] in seen_opts:
                 write_next({
                     "action": "RETRY_TARGET_FORMAT",
                     "resumeRole": "target",
                     "resumeAgentId": agent_ids.get("target"),
-                    "reason": f"question {idx} has malformed option",
-                    "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every option has a string text field."
+                    "reason": f"question {idx} has malformed, empty, or duplicate option text",
+                    "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every option has a unique non-empty text string."
                 })
                 raise SystemExit(0)
-            opt.setdefault("affectedPaths", [])
-            opt.setdefault("draftFiles", [])
+            seen_opts.add(opt["text"])
+            if opt.get("affectedPaths") is None:
+                opt["affectedPaths"] = []
+            if opt.get("draftFiles") is None:
+                opt["draftFiles"] = []
+            if not isinstance(opt["affectedPaths"], list) or not isinstance(opt["draftFiles"], list):
+                write_next({
+                    "action": "RETRY_TARGET_FORMAT",
+                    "resumeRole": "target",
+                    "resumeAgentId": agent_ids.get("target"),
+                    "reason": f"question {idx} option affectedPaths and draftFiles must be lists",
+                    "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring affectedPaths and draftFiles on every option are JSON arrays."
+                })
+                raise SystemExit(0)
 elif status == "needs-workflow-review":
     if not isinstance(obj.get("writtenPaths"), list) or not isinstance(obj.get("sanitizedDecisionRecord"), list):
         write_next({
             "action": "RETRY_TARGET_FORMAT",
             "resumeRole": "target",
             "resumeAgentId": agent_ids.get("target"),
-            "reason": "needs-workflow-review requires writtenPaths and sanitizedDecisionRecord arrays"
+            "reason": "needs-workflow-review requires writtenPaths and sanitizedDecisionRecord arrays",
+            "retryPrompt": "Re-emit your needs-workflow-review JSON with writtenPaths and sanitizedDecisionRecord as JSON arrays."
         })
         raise SystemExit(0)
     with open(os.path.join(cell, "decision-record.json"), "w") as df:
@@ -184,7 +168,8 @@ elif status == "complete":
             "action": "RETRY_TARGET_FORMAT",
             "resumeRole": "target",
             "resumeAgentId": agent_ids.get("target"),
-            "reason": "complete requires finalReport string"
+            "reason": "complete requires finalReport string",
+            "retryPrompt": "Re-emit your complete JSON object with finalReport as a string."
         })
         raise SystemExit(0)
     dec_path = os.path.join(cell, "decision-record.json")
@@ -209,7 +194,8 @@ else:
         "action": "RETRY_TARGET_FORMAT",
         "resumeRole": "target",
         "resumeAgentId": agent_ids.get("target"),
-        "reason": f"unknown status: {status}"
+        "reason": f"unknown status: {status}",
+        "retryPrompt": "Re-emit your response using an allowed status: needs-answer, needs-workflow-review, complete, or protocol-error."
     })
     raise SystemExit(0)
 
@@ -238,7 +224,7 @@ if status == "complete":
 
 # Check if all questions in this needs-answer turn are purely mechanical lifecycle prompts.
 # In update, ONLY the initial Focused update run-choice prompt may be auto-answered; any
-# subsequent or policy/lifecycle prompt must reach the persona and stop the cell as PRODUCT.
+# subsequent or policy/lifecycle prompt immediately stops the cell as a PRODUCT failure.
 scenario = json.load(open(scenario_file))
 ps = scenario.get("approvedPolicy", {})
 answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
@@ -259,31 +245,46 @@ next_turn_index = existing_turn_max + 1
 auto_answers = []
 for idx, q in enumerate(obj["questions"], 1):
     opts = [o["text"] for o in q["options"]]
+    opt_by_text = {o["text"]: o for o in q["options"]}
     matched = None
     reason = None
     if state == "update":
         if not already_answered and len(obj["questions"]) == 1 and any(o.startswith("Focused update") for o in opts):
-            matched = next(o for o in opts if o.startswith("Focused update"))
-            reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
+            cand = next(o for o in opts if o.startswith("Focused update"))
+            if not opt_by_text[cand].get("draftFiles"):
+                matched = cand
+                reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
     elif state == "foreign" and any(o.startswith(scenario.get("foreignRunChoice", "__none__")) for o in opts):
         frc = scenario["foreignRunChoice"]
-        matched = next(o for o in opts if o.startswith(frc))
-        reason = f"Foreign run choice: {frc}"
+        cand = next(o for o in opts if o.startswith(frc))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = f"Foreign run choice: {frc}"
     elif any(o.startswith("Continue without commit") for o in opts) and any("Stop to clean index" in o for o in opts):
-        matched = next(o for o in opts if o.startswith("Continue without commit"))
-        reason = "When pre-existing staged work is reported, choose Continue without commit."
+        cand = next(o for o in opts if o.startswith("Continue without commit"))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = "When pre-existing staged work is reported, choose Continue without commit."
     elif any(o.startswith("Don'\''t commit") or o.startswith("Do not commit") for o in opts) and any(o.startswith("Commit") for o in opts):
-        matched = next(o for o in opts if o.startswith("Don'\''t commit") or o.startswith("Do not commit"))
-        reason = "Decline commit and push."
+        cand = next(o for o in opts if o.startswith("Don'\''t commit") or o.startswith("Do not commit"))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = "Decline commit and push."
     elif ps.get("docsGovernance") == "Snapshot + living docs" and any(o.startswith("Snapshot + living docs") for o in opts) and any("Pointers only" in o for o in opts):
-        matched = next(o for o in opts if o.startswith("Snapshot + living docs"))
-        reason = "Choose the Snapshot + living docs governance policy."
+        cand = next(o for o in opts if o.startswith("Snapshot + living docs"))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = "Choose the Snapshot + living docs governance policy."
     elif ps.get("structure") == "Focused files" and any(o.startswith("Focused files") for o in opts) and any(o.startswith("Compact file") for o in opts):
-        matched = next(o for o in opts if o.startswith("Focused files"))
-        reason = "Choose Focused files."
+        cand = next(o for o in opts if o.startswith("Focused files"))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = "Choose Focused files."
     elif ps.get("toolingChoice") == "Document rules only" and any(o.startswith("Document rules only") for o in opts) and any("Bootstrap tooling" in o for o in opts):
-        matched = next(o for o in opts if o.startswith("Document rules only"))
-        reason = "Document rules only; do not create a manifest or commands."
+        cand = next(o for o in opts if o.startswith("Document rules only"))
+        if not opt_by_text[cand].get("draftFiles"):
+            matched = cand
+            reason = "Document rules only; do not create a manifest or commands."
     if matched is not None:
         auto_answers.append({
             "turnIndex": next_turn_index,
@@ -312,7 +313,19 @@ if len(auto_answers) == len(obj["questions"]):
         "resumeAgentId": agent_ids.get("target"),
         "relayAnswers": relay
     })
+elif state == "update":
+    write_next({
+        "action": "CELL_STOPPED",
+        "failureKind": "PRODUCT",
+        "questionIndex": 1,
+        "reason": "target asked a non-Focused-update or follow-up question in update state"
+    })
 else:
+    turn_record = dict(obj)
+    turn_record["_turnSeq"] = next_turn_index
+    with open(os.path.join(cell, "staging", "last-target-turn.json"), "w", encoding="utf-8") as ltf:
+        json.dump(turn_record, ltf, ensure_ascii=False, indent=2)
+        ltf.write("\n")
     write_next({
         "action": "ASK_PERSONA",
         "resumeRole": "persona",
@@ -355,7 +368,8 @@ except Exception as exc:
         "action": "RETRY_PERSONA_FORMAT",
         "resumeRole": "persona",
         "resumeAgentId": agent_ids.get("persona"),
-        "reason": f"invalid persona JSON: {exc}"
+        "reason": f"invalid persona JSON: {exc}",
+        "retryPrompt": "Return your answer again as a single valid JSON object with status answered or unresolved."
     })
     raise SystemExit(0)
 
@@ -364,22 +378,33 @@ if not isinstance(p, dict) or p.get("status") not in ("answered", "unresolved"):
         "action": "RETRY_PERSONA_FORMAT",
         "resumeRole": "persona",
         "resumeAgentId": agent_ids.get("persona"),
-        "reason": "persona status must be answered or unresolved"
+        "reason": "persona status must be answered or unresolved",
+        "retryPrompt": "Return your answer again with status set to answered or unresolved."
     })
     raise SystemExit(0)
 
-if p["status"] == "unresolved":
+if p["status"] == "unresolved" or state == "update":
     write_next({
         "action": "CELL_STOPPED",
-        # In update the persona holds no answers, so a question it cannot answer means the target
-        # re-interviewed the maintainer: a product failure. Elsewhere it is a harness or scenario gap.
+        # In update the persona holds no answers, so any question reaching persona is a product failure.
         "failureKind": "PRODUCT" if state == "update" else "HARNESS",
         "questionIndex": p.get("questionIndex", 1),
-        "reason": p.get("reason", "persona returned unresolved")
+        "reason": p.get("reason", "update cell cannot accept persona answers" if state == "update" else "persona returned unresolved")
     })
     raise SystemExit(0)
 
-target_turn = json.load(open(os.path.join(cell, "staging", "last-target-turn.json")))
+last_turn_path = os.path.join(cell, "staging", "last-target-turn.json")
+target_turn = json.load(open(last_turn_path))
+if target_turn.get("status") != "needs-answer" or target_turn.get("_answered") is True:
+    write_next({
+        "action": "RETRY_PERSONA_FORMAT",
+        "resumeRole": "persona",
+        "resumeAgentId": agent_ids.get("persona"),
+        "reason": "no unanswered needs-answer target turn is pending",
+        "retryPrompt": "Do not submit duplicate answers; wait for a new unanswered target question turn."
+    })
+    raise SystemExit(0)
+
 questions = target_turn["questions"]
 answers = p.get("answers")
 if not isinstance(answers, list) or len(answers) != len(questions):
@@ -387,7 +412,8 @@ if not isinstance(answers, list) or len(answers) != len(questions):
         "action": "RETRY_PERSONA_FORMAT",
         "resumeRole": "persona",
         "resumeAgentId": agent_ids.get("persona"),
-        "reason": "persona answers length does not match target questions length"
+        "reason": "persona answers length does not match target questions length",
+        "retryPrompt": f"Return an answers array containing exactly {len(questions)} answer object(s), matching each questionIndex in order."
     })
     raise SystemExit(0)
 
@@ -404,7 +430,7 @@ if os.path.isfile(answers_ndjson):
                     existing_turn_max = max(existing_turn_max, int(rec_obj.get("turnIndex", line_idx)))
                 except Exception:
                     existing_turn_max = max(existing_turn_max, line_idx)
-next_turn_index = existing_turn_max + 1
+next_turn_index = int(target_turn.get("_turnSeq") or (existing_turn_max + 1))
 
 for idx, (q, ans) in enumerate(zip(questions, answers), 1):
     if not isinstance(ans, dict) or ans.get("questionIndex") != idx:
@@ -412,26 +438,32 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
             "action": "RETRY_PERSONA_FORMAT",
             "resumeRole": "persona",
             "resumeAgentId": agent_ids.get("persona"),
-            "reason": f"questionIndex mismatch at {idx}"
+            "reason": f"questionIndex mismatch at {idx}",
+            "retryPrompt": f"Ensure answer {idx} has questionIndex: {idx}."
         })
         raise SystemExit(0)
     sel = ans.get("selectedOptions")
     ft = ans.get("freeText")
     auth_by = ans.get("authorizedBy")
-    if not isinstance(sel, list) or (not sel and not isinstance(ft, str)) or (sel and ft is not None):
+    has_sel = isinstance(sel, list) and len(sel) > 0 and all(isinstance(s, str) for s in sel)
+    empty_sel = isinstance(sel, list) and len(sel) == 0
+    has_ft = isinstance(ft, str) and bool(ft.strip())
+    if not ((has_sel and ft is None) or (empty_sel and has_ft)):
         write_next({
             "action": "RETRY_PERSONA_FORMAT",
             "resumeRole": "persona",
             "resumeAgentId": agent_ids.get("persona"),
-            "reason": f"question {idx} must provide either selectedOptions or freeText, not both"
+            "reason": f"question {idx} must provide either non-empty selectedOptions (with freeText null) or empty selectedOptions with non-empty freeText",
+            "retryPrompt": f"For question {idx}, provide either selectedOptions with exact option labels and freeText: null, or selectedOptions: [] with non-empty freeText."
         })
         raise SystemExit(0)
-    if not isinstance(auth_by, list) or not auth_by:
+    if not isinstance(auth_by, list) or not auth_by or not all(isinstance(a, str) and a.strip() for a in auth_by):
         write_next({
             "action": "RETRY_PERSONA_FORMAT",
             "resumeRole": "persona",
             "resumeAgentId": agent_ids.get("persona"),
-            "reason": f"question {idx} lacks authorizedBy array"
+            "reason": f"question {idx} lacks non-empty authorizedBy string array",
+            "retryPrompt": f"For question {idx}, provide a non-empty authorizedBy array of string citations."
         })
         raise SystemExit(0)
     opt_texts = {o["text"] for o in q.get("options", [])}
@@ -441,13 +473,15 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
                 "action": "RETRY_PERSONA_FORMAT",
                 "resumeRole": "persona",
                 "resumeAgentId": agent_ids.get("persona"),
-                "reason": f"selected option {s!r} is not in question {idx} options"
+                "reason": f"selected option {s!r} is not in question {idx} options",
+                "retryPrompt": f"Select exact option text from question {idx}: {sorted(opt_texts)!r}."
             })
             raise SystemExit(0)
+    clean_q = {k: v for k, v in q.items() if not k.startswith("_")}
     records.append({
         "turnIndex": next_turn_index,
         "questionIndex": idx,
-        "question": q,
+        "question": clean_q,
         "selectedOptions": sel,
         "freeText": ft,
         "authorizedBy": auth_by
@@ -461,6 +495,12 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
 with open(answers_ndjson, "a", encoding="utf-8") as af:
     for r in records:
         af.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+if "_turnSeq" in target_turn:
+    target_turn["_answered"] = True
+    with open(last_turn_path, "w", encoding="utf-8") as ltf:
+        json.dump(target_turn, ltf, ensure_ascii=False, indent=2)
+        ltf.write("\n")
 
 write_next({
     "action": "RESUME_TARGET",
@@ -514,6 +554,7 @@ print(payload["action"])' "$CELL" "$REV_A" "$REV_B"
 
   apply-fs)
     [ $# -ge 6 ] && [ $# -le 7 ] || die "usage: step-turn.sh <run-id> <scenario> <state> apply-fs <rm|mv> <src-rel> [dst-rel]"
+    verify_git_safety || die "workspace Git safety check failed before apply-fs"
     OP="$5"
     SRC_REL="$6"
     DST_REL="${7:-}"
@@ -523,7 +564,17 @@ s = json.load(open(scenario_file))
 prefixes = s.get("allowedChangePrefixes", [])
 
 def allowed(rel):
-    if not rel or os.path.isabs(rel) or ".." in rel.split("/") or rel == ".git" or rel.startswith(".git/"):
+    if (
+        not rel
+        or "\n" in rel
+        or "\r" in rel
+        or rel.endswith("/")
+        or os.path.isabs(rel)
+        or ".." in rel.split("/")
+        or "." in rel.split("/")
+        or rel.lower() == ".git"
+        or rel.lower().startswith(".git/")
+    ):
         return False
     for pref in prefixes:
         if pref.endswith("/") and rel.startswith(pref):
@@ -535,9 +586,13 @@ def allowed(rel):
 if not allowed(src_rel):
     raise SystemExit(f"error: source path not in allowedChangePrefixes: {src_rel}")
 ws_real = os.path.realpath(ws)
-src_full = os.path.realpath(os.path.join(ws, src_rel))
-if not src_full.startswith(ws_real + os.sep) or not os.path.isfile(src_full):
-    raise SystemExit(f"error: source file does not exist inside workspace: {src_rel}")
+src_joined = os.path.join(ws, src_rel)
+if os.path.islink(src_joined):
+    raise SystemExit(f"error: refusing symlink source: {src_rel}")
+src_full = os.path.realpath(src_joined)
+src_norm = os.path.relpath(src_full, ws_real).replace(os.sep, "/")
+if not src_full.startswith(ws_real + os.sep) or not os.path.isfile(src_full) or not allowed(src_norm):
+    raise SystemExit(f"error: source file does not exist inside allowedChangePrefixes: {src_rel}")
 
 if op == "rm":
     if dst_rel:
@@ -547,15 +602,22 @@ if op == "rm":
 elif op == "mv":
     if not allowed(dst_rel):
         raise SystemExit(f"error: destination path not in allowedChangePrefixes: {dst_rel}")
-    dst_full = os.path.realpath(os.path.join(ws, dst_rel))
-    if not dst_full.startswith(ws_real + os.sep):
-        raise SystemExit(f"error: destination escapes workspace: {dst_rel}")
+    dst_joined = os.path.join(ws, dst_rel)
+    if os.path.islink(dst_joined):
+        raise SystemExit(f"error: refusing symlink destination: {dst_rel}")
+    dst_parent_real = os.path.realpath(os.path.dirname(dst_joined))
+    dst_full = os.path.join(dst_parent_real, os.path.basename(dst_joined))
+    dst_norm = os.path.relpath(dst_full, ws_real).replace(os.sep, "/")
+    if not dst_full.startswith(ws_real + os.sep) or not allowed(dst_norm):
+        raise SystemExit(f"error: destination escapes allowedChangePrefixes: {dst_rel}")
+    if dst_full == src_full:
+        raise SystemExit(f"error: source and destination are identical: {dst_rel}")
     # A case-only rename resolves to the source itself on case-insensitive filesystems, so allow that.
     if os.path.lexists(dst_full) and dst_full.lower() != src_full.lower():
         raise SystemExit(f"error: destination already exists: {dst_rel}")
     os.makedirs(os.path.dirname(dst_full), exist_ok=True)
     # Two-step rename when only letter case differs on case-insensitive filesystems
-    if src_rel.lower() == dst_rel.lower() and src_rel != dst_rel:
+    if src_full.lower() == dst_full.lower() and src_full != dst_full:
         tmp_full = dst_full + ".case-rename-tmp"
         os.rename(src_full, tmp_full)
         os.rename(tmp_full, dst_full)
@@ -582,6 +644,6 @@ else:
     ;;
 
   *)
-    die "unknown step-turn mode: $MODE (expected lock-agents, target, persona, workflow-review, apply-fs, git-inspect, transcript or maintainer-answers)"
+    die "unknown step-turn mode: $MODE (expected lock-agents, target, persona, workflow-review, apply-fs or git-inspect)"
     ;;
 esac

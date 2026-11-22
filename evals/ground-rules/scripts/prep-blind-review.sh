@@ -40,7 +40,11 @@ write_changed_lists "$TMP"
 
 python3 -I -c 'import json,sys
 m = json.load(open(sys.argv[1]))
-out = {"rubric": m["rubric"], "hardFailures": m["hardFailures"]}
+out = {
+    "commonDecisions": m.get("commonDecisions", []),
+    "rubric": m["rubric"],
+    "hardFailures": m["hardFailures"],
+}
 json.dump(out, open(sys.argv[2], "w"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.json"
 
 python3 -I -c 'import json,sys

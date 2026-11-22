@@ -29,11 +29,13 @@ record() {
 case "$MODE" in
   before)
     [ ! -e "$RUN_ROOT/source-head.txt" ] || die "a before snapshot already exists"
+    rm -f "$RUN_ROOT/source-compare.json"
     record ""
     echo "recorded before snapshot"
     ;;
   after)
     [ -e "$RUN_ROOT/source-head.txt" ] || die "no before snapshot to compare with"
+    rm -f "$RUN_ROOT/source-compare.json"
     record "-after"
     echo "recorded after snapshot"
     ;;

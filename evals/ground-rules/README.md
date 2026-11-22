@@ -74,10 +74,10 @@ scenario, state), validates them in `common.sh`, and works only inside
 | `init-run.sh` | Creates a run folder and prints its id; refuses if `results/` is not ignored by Git |
 | `snapshot-source.sh` | Records and compares the source repository's HEAD, status and file-content fingerprints (`before`, `after`, `compare`) |
 | `prep-cell.sh` | Builds one cell with a baseline commit, separate Git directory, prepared-workspace snapshot and pre-run safety records |
-| `step-turn.sh` | Locks agent IDs, strips markdown fences, validates target/persona JSON, auto-answers mechanical lifecycle prompts, and appends logs (`maintainer-answers.ndjson`, with the deduplicated view in `maintainer-answers.json`) |
-| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks and scenario `artifactAssertions`; writes `deterministic-checks.json`. Safety failures (`safetyFailedChecks`) zero `workspaceSafety` and set `hardFailure`; structural/artifact failures (`artifactFailedChecks`: size limits, pointers, reachability, ownership markers, `artifactAssertions`) apply deterministic category deductions and fail the cell |
+| `step-turn.sh` | Locks agent IDs, strips markdown fences, validates target/persona JSON, auto-answers mechanical lifecycle prompts, and appends `turnIndex`-stamped entries to `maintainer-answers.ndjson` (compiled into `maintainer-answers.json`, collapsing only exact byte-duplicate lines while keeping distinct turns) |
+| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks (plus scenario `artifactAssertions` when `--assertions` is passed) and writes `deterministic-checks.json`, separating `safetyFailedChecks` from `artifactFailedChecks` |
 | `prep-blind-review.sh` | Safely builds `blind-input/` (including presented question options and turn order) after verifying Git pointer and config integrity |
-| `score-cell.sh` | Verifies reviewer citations against allowed blind roots, computes the five `0–100` category scores, separates `HARNESS` from `PRODUCT` failures, and compiles `summary.json` |
+| `score-cell.sh` | Runs `verify-cell.sh --assertions`, verifies reviewer citations against allowed blind roots, applies deterministic safety/artifact penalties, computes the five `0–100` category scores, separates `HARNESS` from `PRODUCT` failures, and compiles `summary.json` |
 | `test-eval.sh` | Regression and calibration test suite (`scripts`, `config` or `all`) |
 
 `prep-cell.sh` builds all three states. `legacy-node-service` fresh also gets
@@ -129,8 +129,8 @@ and uses the per-category median. `update` cells need no reviewers: a zero diff
 with the maintainer rule and canonical structure preserved scores `100`, and an
 `update` cell that fails deterministic checks is recorded as a `PRODUCT` failure.
 
-`result.json` records which path produced the score in `reviewPath`:
-`update-checks-only`, `two-reviewers`, or `three-reviewers`.
+For `blind`-scored cells, `result.json` records which path produced the score in
+`reviewPath`: `update-checks-only`, `two-reviewers`, or `three-reviewers`.
 
 `summary.json` sets `fullRunPassed` only for a full run: all 18 cells present and
 passing with no `hardFailure`, `partialRun` false, a Sonnet 5.5 or later model, and
@@ -171,7 +171,7 @@ result keys) cannot be resumed, re-scored or summarised with these scripts. Star
 ### Records
 
 - `decision-record.json`: the run-local record of the rules the target applied, with id, origin, wording and source. It is the same concept as the plugin skill's decision record (its Step 6.5).
-- `maintainer-answers.ndjson`: the append-only log of every answer the persona or the script gave to the target. `maintainer-answers.json` is its deduplicated view.
+- `maintainer-answers.ndjson`: the append-only log of every answer the persona or the script gave to the target, stamped with `turnIndex` so repeated questions across turns remain visible. `maintainer-answers.json` is its compiled JSON array (collapsing only exact byte-identical lines).
 
 Outputs are written under `evals/ground-rules/results/`, which is ignored by
 Git.

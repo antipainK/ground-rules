@@ -66,7 +66,7 @@ When `AGENTS.md` or `.ai/*.md` already exists, choose:
 
 When only another instruction format exists, choose **Migrate interactively**, **Audit only**, or **Leave unchanged**.
 
-Additional instruction formats are precedence-checked on every run. During a focused update, equivalent and unique non-conflicting content is reported without another interview; conflicting or stale rules are brought to you. Ignored and untracked local overrides remain outside shared migration unless you explicitly include them.
+Additional instruction formats are precedence-checked on every run. During a focused update, equivalent and unique non-conflicting content is reported without another interview; conflicting or stale rules are brought to you. Machine-local overrides (such as `CLAUDE.local.md`, `*.local.md`, and ignored or untracked personal files) remain outside shared migration unless you explicitly include them.
 
 ## What it writes
 

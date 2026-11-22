@@ -65,17 +65,22 @@ cell_paths() {
 # overridden on the command line (partial mitigation: other config-driven commands
 # such as filter drivers are checked by verify_git_safety before fgit runs).
 fgit() {
-  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null \
     --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" "$@"
 }
 
-# Verifies that the workspace has no symlinks, workspace/.git points to cell git-data,
-# git-data contains no symlinks, and Git config/attributes have not been tampered with.
+# Verifies that the workspace has no symlinks, irregular files, control-char names, or nested .git
+# entries; workspace/.git points to cell git-data; git-data contains no symlinks or external object
+# redirections; and Git config/attributes have not been tampered with.
 # Must be called before running fgit in post-run scripts.
 verify_git_safety() {
-  local symlink
+  local symlink unsafe_entry nested_git
   symlink=$(find "$WORKSPACE" -type l -print -quit)
   [ -z "$symlink" ] || return 1
+  unsafe_entry=$(LC_ALL=C find "$WORKSPACE" \( -name $'*[\n\r]*' -o \( ! -type f ! -type d \) \) -print -quit)
+  [ -z "$unsafe_entry" ] || return 1
+  nested_git=$(find "$WORKSPACE" -mindepth 2 -iname .git -print -quit)
+  [ -z "$nested_git" ] || return 2
   local expected_pointer="gitdir: $GIT_DIR"
   [ -f "$WORKSPACE/.git" ] && [ ! -L "$WORKSPACE/.git" ] \
     && [ "$(cat "$WORKSPACE/.git")" = "$expected_pointer" ] \
@@ -95,10 +100,15 @@ verify_git_safety() {
   else
     cmp -s "$GIT_DIR/info/attributes" "$CELL/pre-git-info-attributes" || return 4
   fi
-  if find "$WORKSPACE" -name .gitattributes -print -quit | grep -q .; then
+  if find "$WORKSPACE" -iname .gitattributes -print -quit | grep -q .; then
     return 4
   fi
   if [ -e "$GIT_DIR/commondir" ] \
+    || [ -e "$GIT_DIR/objects/info/alternates" ] \
+    || [ -e "$GIT_DIR/objects/info/http-alternates" ] \
+    || [ -e "$GIT_DIR/info/grafts" ] \
+    || [ -e "$GIT_DIR/shallow" ] \
+    || { [ -d "$GIT_DIR/refs/replace" ] && find "$GIT_DIR/refs/replace" -mindepth 1 -print -quit | grep -q .; } \
     || find "$GIT_DIR" -maxdepth 1 -name 'sharedindex.*' -print -quit | grep -q .; then
     return 5
   fi

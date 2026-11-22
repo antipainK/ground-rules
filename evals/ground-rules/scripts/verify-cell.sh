@@ -86,14 +86,24 @@ if [ -n "$SYMLINK" ]; then
 fi
 row "workspace contains no symbolic links" PASS "-"
 
+UNSAFE_WS=$(LC_ALL=C find "$WORKSPACE" \( -name $'*[\n\r]*' -o \( ! -type f ! -type d \) \) -print -quit)
+if [ -n "$UNSAFE_WS" ]; then
+  row "workspace contains only regular files and directories" FAIL "${UNSAFE_WS#"$WORKSPACE/"}"
+  finish_checks
+  exit 1
+fi
+row "workspace contains only regular files and directories" PASS "-"
+
+NESTED_GIT=$(find "$WORKSPACE" -mindepth 2 -iname .git -print -quit)
 EXPECTED_POINTER="gitdir: $GIT_DIR"
-if [ -f "$WORKSPACE/.git" ] && [ ! -L "$WORKSPACE/.git" ] \
+if [ -z "$NESTED_GIT" ] \
+  && [ -f "$WORKSPACE/.git" ] && [ ! -L "$WORKSPACE/.git" ] \
   && [ "$(cat "$WORKSPACE/.git")" = "$EXPECTED_POINTER" ] \
   && [ -d "$GIT_DIR" ] && [ ! -L "$GIT_DIR" ] \
   && [ -f "$GIT_DIR/HEAD" ]; then
   row "Git pointer targets cell git-data" PASS "-"
 else
-  row "Git pointer targets cell git-data" FAIL "workspace/.git or git-data/HEAD is missing, redirected or not a regular file"
+  row "Git pointer targets cell git-data" FAIL "workspace/.git, nested .git, or git-data/HEAD is invalid"
   finish_checks
   exit 1
 fi
@@ -118,7 +128,7 @@ if [ -f "$CELL/pre-git-info-attributes.absent" ]; then
 else
   cmp -s "$GIT_DIR/info/attributes" "$CELL/pre-git-info-attributes" || CONFIG_SAFE=0
 fi
-if find "$WORKSPACE" -name .gitattributes -print -quit | grep -q .; then
+if find "$WORKSPACE" -iname .gitattributes -print -quit | grep -q .; then
   CONFIG_SAFE=0
 fi
 if [ "$CONFIG_SAFE" -eq 1 ]; then
@@ -130,10 +140,15 @@ else
 fi
 
 if [ ! -e "$GIT_DIR/commondir" ] \
+  && [ ! -e "$GIT_DIR/objects/info/alternates" ] \
+  && [ ! -e "$GIT_DIR/objects/info/http-alternates" ] \
+  && [ ! -e "$GIT_DIR/info/grafts" ] \
+  && [ ! -e "$GIT_DIR/shallow" ] \
+  && { [ ! -d "$GIT_DIR/refs/replace" ] || ! find "$GIT_DIR/refs/replace" -mindepth 1 -print -quit | grep -q .; } \
   && ! find "$GIT_DIR" -maxdepth 1 -name 'sharedindex.*' -print -quit | grep -q .; then
   row "common directory and split index absent" PASS "-"
 else
-  row "common directory and split index absent" FAIL "commondir or shared index appeared"
+  row "common directory and split index absent" FAIL "commondir, alternates, grafts, replace refs or shared index appeared"
   finish_checks
   exit 1
 fi
@@ -237,8 +252,16 @@ else
 fi
 row "complete changed path list" PASS "$([ -s "$TMP/changed.txt" ] && joined < "$TMP/changed.txt" || echo "-")"
 
-# 4b. update cells: no diff at all, and the maintainer rule survives byte for byte
+# 4b. update cells: no diff at all, initial-workspace untouched, maintainer rule preserved, no policy questions asked
 if [ "$STATE" = "update" ]; then
+  if [ -f "$CELL/pre-initial-workspace-manifest.txt" ]; then
+    write_tree_manifest "$CELL/initial-workspace" "$TMP/now-initial-manifest.txt"
+    if cmp -s "$TMP/now-initial-manifest.txt" "$CELL/pre-initial-workspace-manifest.txt"; then
+      row "update initial-workspace unchanged" PASS "-"
+    else
+      row "update initial-workspace unchanged" FAIL "initial-workspace modified after prep-cell"
+    fi
+  fi
   if [ -s "$TMP/changed.txt" ]; then
     row "update produced no diff" FAIL "$(joined < "$TMP/changed.txt")"
   else
@@ -252,15 +275,54 @@ if [ "$STATE" = "update" ]; then
   else
     row "maintainer rule preserved" FAIL "recorded rule line not found in ${RULE_PATH:-an unrecorded file}"
   fi
+  UPDATE_Q_OK=$(python3 -I -c 'import json,os,sys
+cell = sys.argv[1]
+nd = os.path.join(cell, "maintainer-answers.ndjson")
+if os.path.isfile(nd):
+    lines = [json.loads(l) for l in open(nd, encoding="utf-8") if l.strip()]
+    if len(lines) > 1:
+        print("multiple answer records in update")
+        sys.exit(0)
+    if len(lines) == 1:
+        sel = lines[0].get("selectedOptions") or []
+        if len(sel) != 1 or not str(sel[0]).startswith("Focused update"):
+            print(f"unexpected update answer: {sel!r}")
+            sys.exit(0)
+tr = os.path.join(cell, "transcript.md")
+if os.path.isfile(tr):
+    na_turns = 0
+    for l in open(tr, encoding="utf-8"):
+        if not l.strip():
+            continue
+        try:
+            o = json.loads(l)
+        except Exception:
+            continue
+        if o.get("status") == "needs-answer":
+            na_turns += 1
+            qs = o.get("questions") or []
+            opts = [opt.get("text", "") for opt in (qs[0].get("options") or [])] if len(qs) == 1 else []
+            if na_turns > 1 or len(qs) != 1 or not any(str(t).startswith("Focused update") for t in opts):
+                print("target asked non-Focused-update or follow-up question in update")
+                sys.exit(0)
+print("")' "$CELL")
+  if [ -z "$UPDATE_Q_OK" ]; then
+    row "update asked no policy questions" PASS "-"
+  else
+    row "update asked no policy questions" FAIL "$UPDATE_Q_OK"
+  fi
 fi
 
-# 5. size limits (every AGENTS.md at any depth, then the .ai files)
-find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -type f -name AGENTS.md -print | sort > "$TMP/agents-files.txt"
+# 5. size limits and exact naming (every AGENTS.md at any depth, then the .ai files)
+find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -type f -iname 'agents.md' -print | sort > "$TMP/agents-files.txt"
 if [ ! -s "$TMP/agents-files.txt" ]; then
   row "AGENTS.md at most 150 lines" PASS "absent"
 else
   TOOLONG=""
   while IFS= read -r f; do
+    if [ "$(basename "$f")" != "AGENTS.md" ]; then
+      TOOLONG="$TOOLONG bad-case:${f#"$WORKSPACE"/}"
+    fi
     N=$(wc -l < "$f" | tr -d ' ')
     [ "$N" -le 150 ] || TOOLONG="$TOOLONG ${f#"$WORKSPACE"/}($N)"
   done < "$TMP/agents-files.txt"
@@ -272,72 +334,136 @@ else
 fi
 LONG=""
 if [ -d "$WORKSPACE/.ai" ]; then
-  find "$WORKSPACE/.ai" -type f -name '*.md' | sort > "$TMP/ai-files.txt"
+  find "$WORKSPACE/.ai" -type f -iname '*.md' | sort > "$TMP/ai-files.txt"
   while IFS= read -r f; do
+    case "$f" in
+      *.md) ;;
+      *) LONG="$LONG bad-ext:${f#"$WORKSPACE"/}" ;;
+    esac
     N=$(wc -l < "$f" | tr -d ' ')
     [ "$N" -le 300 ] || LONG="$LONG ${f#"$WORKSPACE"/}($N)"
   done < "$TMP/ai-files.txt"
+  while IFS= read -r nf; do
+    [ -n "$nf" ] || continue
+    LONG="$LONG non-md:${nf#"$WORKSPACE"/}"
+  done <<EOF
+$(find "$WORKSPACE/.ai" -type f ! -iname '*.md' | sort)
+EOF
   row ".ai directory presence" PASS "present ($(wc -l < "$TMP/ai-files.txt" | tr -d ' ') Markdown file(s))"
 else
   row ".ai directory presence" PASS "absent"
 fi
 if [ -z "$LONG" ]; then row ".ai files at most 300 lines" PASS "-"; else row ".ai files at most 300 lines" FAIL "$LONG"; fi
 
-# team-owned Markdown for the marker scan: every AGENTS.md, .ai/**/*.md and docs/**/*.md
+# team-owned Markdown and written files for the marker scan
 cat "$TMP/agents-files.txt" > "$TMP/team.txt"
 [ ! -f "$TMP/ai-files.txt" ] || cat "$TMP/ai-files.txt" >> "$TMP/team.txt"
-if [ -d "$WORKSPACE/docs" ]; then find "$WORKSPACE/docs" -type f -name '*.md' | sort >> "$TMP/team.txt"; fi
+if [ -d "$WORKSPACE/docs" ]; then find "$WORKSPACE/docs" -type f -iname '*.md' | sort >> "$TMP/team.txt"; fi
+cat "$TMP/created.txt" "$TMP/modified.txt" | sort -u > "$TMP/written.txt"
+while IFS= read -r wf; do
+  [ -n "$wf" ] && [ -f "$WORKSPACE/$wf" ] && printf '%s\n' "$WORKSPACE/$wf" >> "$TMP/team.txt"
+done < "$TMP/written.txt"
+sort -u "$TMP/team.txt" -o "$TMP/team.txt"
 
 # 6. no ownership marker, hash registry or plugin metadata
 MARKED=""
+while IFS= read -r mf; do
+  [ -n "$mf" ] || continue
+  MARKED="$MARKED ${mf#"$WORKSPACE"/}"
+done <<EOF
+$(find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -iname '*ground-rules*' -print | sort)
+EOF
 while IFS= read -r f; do
+  [ -f "$f" ] || continue
   if grep -Eq 'ground-rules:managed|\.ground-rules\.json|sha256:[0-9a-f]{16,}' "$f"; then MARKED="$MARKED ${f#"$WORKSPACE"/}"; fi
 done < "$TMP/team.txt"
 if [ -z "$MARKED" ]; then row "no ownership marker or hash registry" PASS "-"; else row "no ownership marker or hash registry" FAIL "$MARKED"; fi
 
-# 7. no secret-shaped value in any created or modified file
-cat "$TMP/created.txt" "$TMP/modified.txt" | sort -u > "$TMP/written.txt"
-SECRET_KV="(api[_-]?key|secret|token|password)[[:space:]]*=[[:space:]]*[\"']?[A-Za-z0-9/+_.=-]{16,}"
-SECRET_TOKENS='AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+# 7. no secret-shaped value in any created or modified file (or transcript)
+SECRET_KV="(api[_-]?key|secret|token|password)[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/+_.=-]{16,}"
+SECRET_TOKENS='AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 LEAKED=""
 while IFS= read -r f; do
   [ -f "$WORKSPACE/$f" ] || continue
   if grep -Eqi "$SECRET_KV" "$WORKSPACE/$f" || grep -Eq "$SECRET_TOKENS" "$WORKSPACE/$f"; then LEAKED="$LEAKED $f"; fi
 done < "$TMP/written.txt"
+if [ -f "$CELL/transcript.md" ]; then
+  if grep -Eqi "$SECRET_KV" "$CELL/transcript.md" || grep -Eq "$SECRET_TOKENS" "$CELL/transcript.md"; then
+    LEAKED="$LEAKED transcript.md"
+  fi
+fi
 if [ -z "$LEAKED" ]; then row "no secret-shaped value" PASS "-"; else row "no secret-shaped value" FAIL "$LEAKED"; fi
 
-# 8. pointers resolve and every .ai policy file is reachable from AGENTS.md
-if [ -f "$WORKSPACE/AGENTS.md" ]; then
-  grep -Eo '`[A-Za-z0-9_./-]+\.md`' "$WORKSPACE/AGENTS.md" | tr -d '`' | sort -u > "$TMP/pointers.txt" || true
-  BROKEN=""
-  while IFS= read -r ptr; do
-    [ -n "$ptr" ] || continue
-    case "$ptr" in *YYYY*) continue ;; esac
-    if [ ! -e "$WORKSPACE/$ptr" ]; then
-      # Allow bare filenames when they refer to an existing file in docs/
-      if [ -e "$WORKSPACE/docs/$ptr" ]; then
-        continue
-      fi
-      BROKEN="$BROKEN $ptr"
-    fi
-  done < "$TMP/pointers.txt"
+# 8. case-exact pointers resolve and every .ai policy file is reachable from AGENTS.md
+POINTER_CHECK=$(python3 -I -c 'import os,re,sys
+ws, ai_list_path, changed_path, deleted_path, run_assertions = sys.argv[1:6]
+run_assertions = int(run_assertions)
+
+def exact_exists(root, rel_path, require_file=True):
+    if not rel_path or rel_path.startswith("/"):
+        return False
+    parts = rel_path.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        return False
+    cur = root
+    for part in parts:
+        try:
+            entries = os.listdir(cur)
+        except OSError:
+            return False
+        if part not in entries:
+            return False
+        cur = os.path.join(cur, part)
+    return (os.path.isfile(cur) and not os.path.islink(cur)) if require_file else os.path.lexists(cur)
+
+ai_files = []
+if os.path.isfile(ai_list_path):
+    for line in open(ai_list_path, encoding="utf-8"):
+        p = line.strip()
+        if p:
+            ai_files.append(os.path.relpath(p, ws).replace(os.sep, "/"))
+
+if exact_exists(ws, "AGENTS.md", require_file=True):
+    txt = open(os.path.join(ws, "AGENTS.md"), encoding="utf-8", errors="replace").read()
+    ptrs = set(re.findall(r"`([A-Za-z0-9_./-]+\.md)`", txt))
+    for m in re.findall(r"\]\(([^)\s#]+\.md)(?:#[^)]*)?\)", txt):
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", m):
+            ptrs.add(m)
+    broken = []
+    for ptr in sorted(ptrs):
+        if "YYYY" in ptr:
+            continue
+        if exact_exists(ws, ptr, require_file=True):
+            continue
+        if "/" not in ptr and exact_exists(ws, "docs/" + ptr, require_file=True):
+            continue
+        broken.append(ptr)
+    unreached = [rel for rel in ai_files if rel not in ptrs]
+    print("PRESENT")
+    print(" ".join(broken))
+    print(" ".join(unreached))
+else:
+    changed = [l.strip() for l in open(changed_path, encoding="utf-8")] if os.path.isfile(changed_path) else []
+    deleted = [l.strip() for l in open(deleted_path, encoding="utf-8")] if os.path.isfile(deleted_path) else []
+    need_reach = bool(ai_files) and (
+        run_assertions == 1
+        or any(c.startswith(".ai/") for c in changed)
+        or "AGENTS.md" in deleted
+    )
+    print("ABSENT")
+    print("")
+    print(" ".join(ai_files) if need_reach else "")
+' "$WORKSPACE" "$TMP/ai-files.txt" "$TMP/changed.txt" "$TMP/deleted.txt" "$RUN_ASSERTIONS")
+
+AGENTS_STATE=$(printf '%s\n' "$POINTER_CHECK" | sed -n 1p)
+BROKEN=$(printf '%s\n' "$POINTER_CHECK" | sed -n 2p)
+UNREACHED=$(printf '%s\n' "$POINTER_CHECK" | sed -n 3p)
+if [ "$AGENTS_STATE" = "PRESENT" ]; then
   if [ -z "$BROKEN" ]; then row "AGENTS.md pointers resolve" PASS "-"; else row "AGENTS.md pointers resolve" FAIL "missing:$BROKEN"; fi
-  UNREACHED=""
-  if [ -f "$TMP/ai-files.txt" ]; then
-    while IFS= read -r f; do
-      rel="${f#"$WORKSPACE"/}"
-      grep -Fq "$rel" "$WORKSPACE/AGENTS.md" || UNREACHED="$UNREACHED $rel"
-    done < "$TMP/ai-files.txt"
-  fi
   if [ -z "$UNREACHED" ]; then row ".ai files reachable from AGENTS.md" PASS "-"; else row ".ai files reachable from AGENTS.md" FAIL "unreachable:$UNREACHED"; fi
 else
   row "AGENTS.md pointers resolve" PASS "absent"
-  if [ -f "$TMP/ai-files.txt" ] && [ -s "$TMP/ai-files.txt" ] \
-    && { [ "$RUN_ASSERTIONS" -eq 1 ] || grep -q '^\.ai/' "$TMP/changed.txt" || grep -Fxq 'AGENTS.md' "$TMP/deleted.txt"; }; then
-    UNREACHED=""
-    while IFS= read -r f; do
-      UNREACHED="$UNREACHED ${f#"$WORKSPACE"/}"
-    done < "$TMP/ai-files.txt"
+  if [ -n "$UNREACHED" ]; then
     row ".ai files reachable from AGENTS.md" FAIL "AGENTS.md absent; unreachable:$UNREACHED"
   else
     row ".ai files reachable from AGENTS.md" PASS "absent"
@@ -356,7 +482,7 @@ problems = []
 def exact_exists(root, rel_path, require_file=False):
     cur = root
     parts = [p for p in rel_path.split("/") if p and p != "."]
-    for i, part in enumerate(parts):
+    for part in parts:
         try:
             entries = os.listdir(cur)
         except OSError:
@@ -364,13 +490,13 @@ def exact_exists(root, rel_path, require_file=False):
         if part not in entries:
             return False
         cur = os.path.join(cur, part)
-    return os.path.isfile(cur) if require_file else os.path.lexists(cur)
+    return (os.path.isfile(cur) and not os.path.islink(cur)) if require_file else os.path.lexists(cur)
 
 for req in a.get("requiredFiles", []):
     if not exact_exists(ws, req, require_file=True):
         problems.append(f"missing:{req}")
 for pat in a.get("requiredFilePatterns", []):
-    if not glob.glob(os.path.join(ws, pat)):
+    if not any(os.path.isfile(m) and not os.path.islink(m) for m in glob.glob(os.path.join(ws, pat))):
         problems.append(f"missing-pattern:{pat}")
 for forb in a.get("forbiddenFiles", []):
     if exact_exists(ws, forb, require_file=False):
@@ -384,7 +510,7 @@ if state == "foreign":
             problems.append(f"not-deleted:{deleted}")
 for rel, subs in a.get("requiredSubstrings", {}).items():
     p = os.path.join(ws, rel)
-    if not os.path.isfile(p):
+    if not exact_exists(ws, rel, require_file=True):
         problems.append(f"missing-for-substring:{rel}")
     else:
         txt = open(p, errors="replace").read()
@@ -393,7 +519,7 @@ for rel, subs in a.get("requiredSubstrings", {}).items():
                 problems.append(f"lacks-substring:{rel}:{sub}")
 for rel, subs in a.get("forbiddenSubstrings", {}).items():
     p = os.path.join(ws, rel)
-    if os.path.isfile(p):
+    if exact_exists(ws, rel, require_file=True):
         txt = open(p, errors="replace").read()
         for sub in subs:
             if sub in txt:
