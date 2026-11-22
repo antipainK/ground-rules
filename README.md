@@ -10,7 +10,7 @@ A Claude Code plugin with one interactive skill that sets up, migrates, validate
 - offers to delete old AI instruction files once their content is moved (you confirm each one)
 - offers a dated checklist in `docs/todo/` for code that doesn't follow the new rules yet
 - treats current Markdown as team-owned policy, with no plugin markers, hashes, or hidden ownership state
-- has two fresh agents review the result; deterministic findings are fixed, removed, or explicitly reported as open conflicts before any commit choice
+- has a fresh agent review the result; deterministic findings are fixed, removed, or explicitly reported as open conflicts before any commit choice
 
 You decide every rule. The skill never changes application code.
 

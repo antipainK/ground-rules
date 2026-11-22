@@ -24,20 +24,27 @@ mkdir -p "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 export LC_ALL=C
 FAILS=0
-: > "$TMP/rows.ndjson"
+: > "$TMP/rows.bin"
 
 row() {
   printf '| %s | %s | %s |\n' "$1" "$2" "$3"
-  python3 -I -c 'import json,sys
-open(sys.argv[4], "a").write(json.dumps({"check": sys.argv[1], "result": sys.argv[2], "detail": sys.argv[3]}) + "\n")' "$1" "$2" "$3" "$TMP/rows.ndjson"
+  printf '%s\0%s\0%s\0' "$1" "$2" "$3" >> "$TMP/rows.bin"
   [ "$2" = "PASS" ] || FAILS=$((FAILS + 1))
 }
 
 finish_checks() {
   python3 -I -c 'import json,sys
-rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
-# Quality checks are advice for the reviewers: a failure is reported but is not a safety failure.
-ADVISORY = {
+raw = open(sys.argv[1], "rb").read().split(b"\0")
+if raw and raw[-1] == b"":
+    raw = raw[:-1]
+rows = []
+for i in range(0, len(raw), 3):
+    rows.append({
+        "check": raw[i].decode("utf-8", "replace"),
+        "result": raw[i + 1].decode("utf-8", "replace"),
+        "detail": raw[i + 2].decode("utf-8", "replace"),
+    })
+ARTIFACT_CHECKS = {
   "AGENTS.md at most 150 lines",
   ".ai files at most 300 lines",
   "no ownership marker or hash registry",
@@ -45,18 +52,23 @@ ADVISORY = {
   ".ai files reachable from AGENTS.md",
   "scenario artifact assertions",
 }
-fails = [r["check"] for r in rows if r["result"] != "PASS" and r["check"] not in ADVISORY]
-advisory = [r["check"] for r in rows if r["result"] != "PASS" and r["check"] in ADVISORY]
-safety_score = 100 if not fails else 0
+all_fails = [r["check"] for r in rows if r["result"] != "PASS"]
+safety_fails = [r["check"] for r in rows if r["result"] != "PASS" and r["check"] not in ARTIFACT_CHECKS]
+artifact_fails = [r["check"] for r in rows if r["result"] != "PASS" and r["check"] in ARTIFACT_CHECKS]
+safety_score = 100 if not safety_fails else 0
 out = {
-  "passed": len(fails) == 0,
-  "failedCount": len(fails),
-  "failedChecks": fails,
-  "advisoryFailures": advisory,
+  "passed": len(all_fails) == 0,
+  "safetyPassed": len(safety_fails) == 0,
+  "failedCount": len(all_fails),
+  "failedChecks": all_fails,
+  "safetyFailedChecks": safety_fails,
+  "artifactFailedChecks": artifact_fails,
   "safetyScore": safety_score,
   "rows": rows
 }
-json.dump(out, open(sys.argv[2], "w"), indent=2)' "$TMP/rows.ndjson" "$CELL/deterministic-checks.json"
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump(out, f, indent=2)
+    f.write("\n")' "$TMP/rows.bin" "$CELL/deterministic-checks.json"
 }
 
 joined() {

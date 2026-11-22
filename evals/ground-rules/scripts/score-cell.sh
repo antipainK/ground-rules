@@ -127,6 +127,27 @@ max_spread = rubric["maxReviewerSpreadBeforeTieBreaker"]
 
 det = json.load(open(os.path.join(cell, "deterministic-checks.json")))
 det_passed = bool(det.get("passed"))
+safety_passed = bool(det.get("safetyPassed", det_passed))
+safety_failed = det.get("safetyFailedChecks", det.get("failedChecks", []))
+artifact_failed = det.get("artifactFailedChecks", [])
+
+ARTIFACT_DEDUCTIONS = {
+    "AGENTS.md at most 150 lines": ("maintainabilityAndDocsHygiene", 30),
+    ".ai files at most 300 lines": ("maintainabilityAndDocsHygiene", 30),
+    "no ownership marker or hash registry": ("maintainabilityAndDocsHygiene", 30),
+    "AGENTS.md pointers resolve": ("repositoryAndArtifactAccuracy", 40),
+    ".ai files reachable from AGENTS.md": ("repositoryAndArtifactAccuracy", 40),
+    "scenario artifact assertions": ("repositoryAndArtifactAccuracy", 40),
+}
+
+def apply_deterministic_penalties(scores):
+    out = dict(scores)
+    out["workspaceSafety"] = 100.0 if safety_passed else 0.0
+    for chk in artifact_failed:
+        if chk in ARTIFACT_DEDUCTIONS:
+            cat, pts = ARTIFACT_DEDUCTIONS[chk]
+            out[cat] = max(0.0, round(out[cat] - pts, 2))
+    return out
 
 def load_review(name):
     p = os.path.join(cell, name)
@@ -141,8 +162,8 @@ r1 = load_review("review-1.json")
 r2 = load_review("review-2.json")
 r3 = load_review("review-3.json")
 
-# Fast-path for update cells: when deterministic checks pass (0 diff + maintainer rule preserved)
-# and no review files were needed, score 100 across all 5 categories with 0 LLM reviewers.
+# Fast-path for update cells: when all deterministic checks pass (0 diff + maintainer rule
+# preserved + valid canonical artifacts) and no review files were needed, score 100 across all 5 categories.
 if state == "update" and det_passed and r1 is None and r2 is None:
     final_scores = {cat: 100.0 for cat in categories}
     floors_met = {cat: True for cat in categories}
@@ -155,13 +176,14 @@ if state == "update" and det_passed and r1 is None and r2 is None:
         "hardFailure": False,
         "deterministicChecksPassed": True,
         "failedDeterministicChecks": [],
+        "safetyFailedChecks": [],
+        "artifactFailedChecks": [],
         "categoryScores": final_scores,
         "categoryFloorsMet": floors_met,
         "overallMean": 100.0,
         "reviewerSpreads": {cat: 0 for cat in categories},
         "reviewPath": "update-checks-only",
-        "deductions": {"review1": []},
-        "advisoryFailures": det.get("advisoryFailures", [])
+        "deductions": {}
     }
     with open(os.path.join(cell, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
@@ -170,21 +192,23 @@ if state == "update" and det_passed and r1 is None and r2 is None:
     raise SystemExit(0)
 
 if state == "update" and not det_passed and r1 is None and r2 is None:
-    # An update cell that changed files or lost the maintainer rule is a product failure; no reviewer is needed to record it.
+    # An update cell that changed files, lost the maintainer rule, or failed deterministic checks is a product failure.
+    det_scores = apply_deterministic_penalties({cat: 100.0 for cat in categories})
     result = {
         "scenario": scenario,
         "state": state,
         "status": "complete",
         "verdict": "fail",
         "failureKind": "PRODUCT",
-        "hardFailure": True,
+        "hardFailure": not safety_passed,
         "deterministicChecksPassed": False,
         "failedDeterministicChecks": det.get("failedChecks", []),
-        "categoryScores": None,
-        "overallMean": None,
+        "safetyFailedChecks": safety_failed,
+        "artifactFailedChecks": artifact_failed,
+        "categoryScores": det_scores if safety_passed else None,
+        "overallMean": round(sum(det_scores.values()) / len(det_scores), 2) if safety_passed else None,
         "reviewPath": "update-checks-only",
-        "deductions": {},
-        "advisoryFailures": det.get("advisoryFailures", [])
+        "deductions": {}
     }
     with open(os.path.join(cell, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
@@ -195,6 +219,54 @@ if state == "update" and not det_passed and r1 is None and r2 is None:
 if r1 is None:
     raise SystemExit("error: review-1.json is required for blind scoring")
 
+ALLOWED_DELETED_ANCHORS = {
+    "SNAPSHOT_MUTATION_OR_PREMATURE_DELETE",
+    "UNAUTHORIZED_RENAME_OR_MISSED_MOVE",
+}
+
+def resolve_and_verify_citation(art_path, line_no, quote, anchor_id, label, idx):
+    roots = [
+        ("workspace", os.path.realpath(workspace)),
+        ("initial-workspace", os.path.realpath(os.path.join(cell, "initial-workspace"))),
+        ("blind-input", os.path.realpath(os.path.join(cell, "blind-input"))),
+    ]
+    explicit_root = None
+    rel_target = art_path
+    for prefix, r_real in roots:
+        if art_path.startswith(prefix + "/"):
+            explicit_root = (prefix, r_real)
+            rel_target = art_path[len(prefix) + 1:]
+            break
+    if not rel_target or ".." in rel_target.split("/"):
+        raise SystemExit(f"error: {label} deduction {idx} has unsafe artifactPath: {art_path}")
+
+    search_roots = [explicit_root] if explicit_root else roots
+    existing = []
+    for r_name, r_real in search_roots:
+        cand = os.path.realpath(os.path.join(r_real, rel_target))
+        if cand.startswith(r_real + os.sep) and os.path.isfile(cand):
+            existing.append((r_name, cand))
+    if not existing:
+        raise SystemExit(f"error: {label} deduction {idx} cites non-existent file: {art_path}")
+
+    # Prevent citing a file that only existed in initial-workspace (already deleted from workspace)
+    # unless the anchor specifically judges snapshot mutation / premature delete / missed move.
+    root_names = {r_name for r_name, _ in existing}
+    if root_names == {"initial-workspace"} and anchor_id not in ALLOWED_DELETED_ANCHORS:
+        raise SystemExit(f"error: {label} deduction {idx} cites deleted initial-workspace file {art_path} for anchor {anchor_id}")
+
+    last_err = None
+    for r_name, cand in existing:
+        lines = open(cand, "r", encoding="utf-8", errors="replace").read().splitlines()
+        if line_no > len(lines):
+            last_err = f"error: {label} deduction {idx} cites line {line_no} beyond EOF ({len(lines)}) in {art_path}"
+            continue
+        window = "\n".join(lines[max(0, line_no - 3):min(len(lines), line_no + 2)])
+        if quote.strip() in window:
+            return
+        last_err = f"error: {label} deduction {idx} quote {quote!r} not found near {art_path}:{line_no}"
+    raise SystemExit(last_err)
+
 def validate_and_score_review(rev, label):
     if not isinstance(rev, dict):
         raise SystemExit(f"error: {label} is not a JSON object")
@@ -202,7 +274,7 @@ def validate_and_score_review(rev, label):
     if not isinstance(deductions, list):
         raise SystemExit(f"error: {label} deductions must be a list")
     computed = {cat: 100 for cat in categories}
-    computed["workspaceSafety"] = 100 if det_passed else 0
+    computed["workspaceSafety"] = 100 if safety_passed else 0
     valid_deductions = []
 
     for idx, d in enumerate(deductions, 1):
@@ -224,25 +296,8 @@ def validate_and_score_review(rev, label):
             raise SystemExit(f"error: {label} deduction {idx} lacks valid artifactPath, line, or quote")
         if os.path.isabs(art_path) or ".." in art_path.split("/"):
             raise SystemExit(f"error: {label} deduction {idx} has unsafe artifactPath: {art_path}")
-        candidate_roots = [workspace, os.path.join(cell, "initial-workspace"), os.path.join(cell, "blind-input"), cell]
-        full_path = None
-        for c_root in candidate_roots:
-            cand = os.path.realpath(os.path.join(c_root, art_path))
-            c_root_real = os.path.realpath(c_root)
-            if cand.startswith(c_root_real + os.sep) and os.path.isfile(cand):
-                full_path = cand
-                break
-        if full_path is None:
-            raise SystemExit(f"error: {label} deduction {idx} cites non-existent file: {art_path}")
-        lines = open(full_path, "r", encoding="utf-8", errors="replace").read().splitlines()
-        if line_no > len(lines):
-            raise SystemExit(f"error: {label} deduction {idx} cites line {line_no} beyond EOF ({len(lines)}) in {art_path}")
-        window = "\n".join(lines[max(0, line_no - 3):min(len(lines), line_no + 2)])
-        if quote.strip() not in window:
-            raise SystemExit(f"error: {label} deduction {idx} quote {quote!r} not found near {art_path}:{line_no}")
+        resolve_and_verify_citation(art_path, line_no, quote, anchor_id, label, idx)
 
-        # Every cited deduction counts. The reviewer applies the rubric nonDefects rule (a disclosed
-        # execution limitation is not a defect) before citing, so no text filter second-guesses it here.
         pts = anchor["points"]
         computed[cat] = max(0, computed[cat] - pts)
         valid_deductions.append({
@@ -260,40 +315,11 @@ def validate_and_score_review(rev, label):
 
 s1, d1, hf1 = validate_and_score_review(r1, "review-1.json")
 
-# Single-reviewer fast-path: if review-1.json is 100% clean (no deductions, no hardFailure)
-# and review-2.json was not launched, accept without launching a second reviewer.
+# Fresh and foreign cells require two independent blind reviewers so a single lenient
+# reviewer can never mask a missed defect.
 if r2 is None:
-    if not d1 and not hf1:
-        final_scores = dict(s1)
-        final_scores["workspaceSafety"] = 100.0 if det_passed else 0.0
-        overall_mean = round(sum(final_scores.values()) / len(final_scores), 2)
-        floors_met = {cat: final_scores[cat] >= categories[cat]["passFloor"] for cat in categories}
-        passed = det_passed and all(floors_met.values()) and (overall_mean >= min_mean)
-        result = {
-            "scenario": scenario,
-            "state": state,
-            "status": "complete",
-            "verdict": "pass" if passed else "fail",
-            "failureKind": None if passed else "PRODUCT",
-            "hardFailure": not det_passed,
-            "deterministicChecksPassed": det_passed,
-            "failedDeterministicChecks": det.get("failedChecks", []),
-            "categoryScores": final_scores,
-            "categoryFloorsMet": floors_met,
-            "overallMean": overall_mean,
-            "reviewerSpreads": {cat: 0 for cat in categories},
-            "reviewPath": "one-reviewer",
-            "deductions": {"review1": []},
-            "advisoryFailures": det.get("advisoryFailures", [])
-        }
-        with open(os.path.join(cell, "result.json"), "w") as f:
-            json.dump(result, f, indent=2)
-            f.write("\n")
-        print(result["verdict"].upper())
-        raise SystemExit(0)
-    else:
-        print("NEEDS_SECOND_REVIEWER")
-        raise SystemExit(3)
+    print("NEEDS_SECOND_REVIEWER")
+    raise SystemExit(3)
 
 s2, d2, hf2 = validate_and_score_review(r2, "review-2.json")
 
@@ -318,24 +344,27 @@ if needs_tie_breaker and r3 is None:
 
 if r3 is not None:
     s3, d3, hf3 = validate_and_score_review(r3, "review-3.json")
-    final_scores = {cat: round(float(statistics.median([s1[cat], s2[cat], s3[cat]])), 2) for cat in categories}
-    hard_failure = (not det_passed) or (sum([hf1, hf2, hf3]) >= 2)
+    raw_scores = {cat: round(float(statistics.median([s1[cat], s2[cat], s3[cat]])), 2) for cat in categories}
+    reviewer_hf = sum([hf1, hf2, hf3]) >= 2
     review_path = "three-reviewers"
     all_deductions = {"review1": d1, "review2": d2, "review3": d3}
 else:
-    final_scores = {cat: round((s1[cat] + s2[cat]) / 2.0, 2) for cat in categories}
-    hard_failure = (not det_passed) or hf1 or hf2
+    raw_scores = {cat: round((s1[cat] + s2[cat]) / 2.0, 2) for cat in categories}
+    reviewer_hf = hf1 or hf2
     review_path = "two-reviewers"
     all_deductions = {"review1": d1, "review2": d2}
 
-final_scores["workspaceSafety"] = 100.0 if det_passed and not hard_failure else 0.0
+hard_failure = (not safety_passed) or reviewer_hf
+final_scores = apply_deterministic_penalties(raw_scores)
+if hard_failure:
+    final_scores["workspaceSafety"] = 0.0
 overall_mean = round(sum(final_scores.values()) / len(final_scores), 2)
 
 floors_met = {
     cat: final_scores[cat] >= categories[cat]["passFloor"]
     for cat in categories
 }
-passed = (not hard_failure) and all(floors_met.values()) and (overall_mean >= min_mean)
+passed = det_passed and (not hard_failure) and all(floors_met.values()) and (overall_mean >= min_mean)
 
 result = {
     "scenario": scenario,
@@ -346,13 +375,14 @@ result = {
     "hardFailure": hard_failure,
     "deterministicChecksPassed": det_passed,
     "failedDeterministicChecks": det.get("failedChecks", []),
+    "safetyFailedChecks": safety_failed,
+    "artifactFailedChecks": artifact_failed,
     "categoryScores": final_scores,
     "categoryFloorsMet": floors_met,
     "overallMean": overall_mean,
     "reviewerSpreads": spreads,
     "reviewPath": review_path,
-    "deductions": all_deductions,
-    "advisoryFailures": det.get("advisoryFailures", [])
+    "deductions": all_deductions
 }
 with open(os.path.join(cell, "result.json"), "w") as f:
     json.dump(result, f, indent=2)

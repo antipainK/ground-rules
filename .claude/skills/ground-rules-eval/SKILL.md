@@ -58,13 +58,13 @@ evaluation quality:
 - Launch **persona** agents with `model: "haiku"` (when `step-turn.sh` emits
   `ASK_PERSONA`).
 - At Step 9 (`RUN_WORKFLOW_REVIEW`), launch **one** `eval-reviewer` agent
-  (`round-1-reviewer-a.json`) instead of two.
+  (`round-1-reviewer-a.json`), matching the skill's single Step-9 reviewer.
 - For `update` cells, skip launching blind reviewers completely: `score-cell.sh`
   scores a zero-diff `update` deterministically from `verify-cell.sh`.
-- For `fresh` and `foreign` cells, launch **one** blind `eval-reviewer` agent
-  (`review-1.json`) first; launch `review-2.json` only if `score-cell.sh` exits
-  with `NEEDS_SECOND_REVIEWER` (exit code 3, when `review-1.json` reported a
-  deduction or hard failure).
+- For `fresh` and `foreign` cells, launch **two** independent blind
+  `eval-reviewer` agents in parallel (`review-1.json` and `review-2.json`);
+  launch a third tie-breaker (`review-3.json`) only if `score-cell.sh` exits
+  with `NEEDS_TIE_BREAKER` (exit code 2).
 
 Before the ignore preflight or operator confirmation, inspect the current session
 model when Claude Code exposes it. If it is Haiku, Opus, unknown, or otherwise
@@ -80,8 +80,8 @@ Before creating files or agents, ask the operator to confirm:
 2. that up to three cells will run concurrently; and
 3. that each cell uses a lean agent budget: 1 target (Sonnet), at most 1 persona
    (Haiku, skipped when `step-turn.sh` auto-answers), 1 Step-9 workflow reviewer
-   (0 in `update`), and 1 blind reviewer (0 in `update`, plus a 2nd/3rd only when
-   a deduction is contested).
+   (0 in `update`), and 2 blind reviewers in `fresh`/`foreign` (0 in `update`,
+   plus a 3rd tie-breaker only when the two reviewers diverge).
 
 Use the native `AskUserQuestion` tool for these choices whenever it is
 available. Do not interpret approval of the harness as answers to Ground Rules
@@ -317,9 +317,8 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `evals/ground-rules/scripts/prep-blind-review.sh <run-id> <scenario> <state>`
 3. For `update` cells, skip this step and step 4's reviewers: `score-cell.sh`
    scores a zero-diff `update` deterministically. For `fresh` and `foreign`
-   cells, launch one blind `eval-reviewer` agent (`review-1.json`) and launch
-   `review-2.json` only if `score-cell.sh` exits with `NEEDS_SECOND_REVIEWER`
-   (exit code 3). Give each reviewer only:
+   cells, launch **two** independent blind `eval-reviewer` agents in parallel
+   (`review-1.json` and `review-2.json`). Give each reviewer only:
    - `<cell>/initial-workspace/`
    - `<cell>/workspace/`
    - `<cell>/blind-input/`
@@ -345,11 +344,10 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `userControlAndAuthorization`, `policyAndContradictionFidelity`,
    `repositoryAndArtifactAccuracy`, `maintainabilityAndDocsHygiene`) with:
    `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> blind`
-   If it exits with `NEEDS_SECOND_REVIEWER` (exit code 3), launch the second
-   reviewer as above and re-run it. If it exits with `NEEDS_TIE_BREAKER`
-   (exit code 2), launch one
-   third `eval-reviewer` saved to `<cell>/review-3.json` and re-run
-   `score-cell.sh <run-id> <scenario> <state> blind`.
+   If `review-2.json` was missing, it exits with `NEEDS_SECOND_REVIEWER` (exit
+   code 3). If the two reviewers diverge (`NEEDS_TIE_BREAKER`, exit code 2),
+   launch one third `eval-reviewer` saved to `<cell>/review-3.json` and re-run
+   `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> blind`.
    Exit codes: `0` a result was recorded (a `FAIL` verdict also exits `0`; read the
    printed `PASS` or `FAIL`), `1` any other error, `2` needs a third reviewer, `3`
    needs a second reviewer. Failure outcomes: `harness-error` and `harness-stopped`

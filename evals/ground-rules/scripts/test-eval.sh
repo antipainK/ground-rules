@@ -270,13 +270,13 @@ run_scripts_group() {
   cp "$WORKSPACE/AGENTS.md" "$CELL/AGENTS.md.saved"
   yes line | head -n 151 > "$WORKSPACE/AGENTS.md"
   expect_check_fail T18 "AGENTS.md at most 150 lines"
-  # A size limit is advice: it is listed as an advisory failure and is not a safety failure
+  # Size limits are deterministic artifact failures: passed is False while workspace safety remains True
   if python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
-sys.exit(0 if d["passed"] is True and d["safetyScore"] == 100 and d["failedChecks"] == [] and "AGENTS.md at most 150 lines" in d["advisoryFailures"] else 1)' "$CELL/deterministic-checks.json"; then
-    pass T18-advisory
+sys.exit(0 if d["passed"] is False and d["safetyPassed"] is True and d["safetyScore"] == 100 and d["safetyFailedChecks"] == [] and "AGENTS.md at most 150 lines" in d["artifactFailedChecks"] and "AGENTS.md at most 150 lines" in d["failedChecks"] else 1)' "$CELL/deterministic-checks.json"; then
+    pass T18-artifact-check
   else
-    fail T18-advisory "$(cat "$CELL/deterministic-checks.json")"
+    fail T18-artifact-check "$(cat "$CELL/deterministic-checks.json")"
   fi
   cp "$CELL/AGENTS.md.saved" "$WORKSPACE/AGENTS.md"
   expect_check_pass T18-undo
@@ -389,6 +389,14 @@ NDJSON
   if python3 -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if d.get("rubric", {}).get("categories") and d.get("hardFailures") else 1)' "$CELL/blind-input/rubric.json"; then pass T50-rubric; else fail T50-rubric "rubric.json lacks categories or hardFailures"; fi
+  if python3 -I -c 'import json,sys
+ans = json.load(open(sys.argv[1]))
+opts = [o["text"] for o in ans[0].get("options", [])]
+sys.exit(0 if opts == ["Apply", "Skip"] else 1)' "$CELL/blind-input/maintainer-answers.json"; then
+    pass T50-options-preserved
+  else
+    fail T50-options-preserved "$(cat "$CELL/blind-input/maintainer-answers.json")"
+  fi
   if grep -Fxq 'created: AGENTS.md' "$CELL/blind-input/changed-paths.txt" \
     && grep -Fxq 'created: .ai/testing.md' "$CELL/blind-input/changed-paths.txt" \
     && grep -Fxq 'created: docs/note.md' "$CELL/blind-input/changed-paths.txt"; then pass T50-paths; else fail T50-paths "$(cat "$CELL/blind-input/changed-paths.txt")"; fi
@@ -451,6 +459,24 @@ TURN
     printf '%s\n' '{"status":"unresolved","reason":"no answer held"}' > "$UPDATE_STUB/staging/persona-turn.txt"
     run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update persona
     if echo "$OUT" | grep -Fxq "CELL_STOPPED" && grep -Fq '"failureKind": "PRODUCT"' "$UPDATE_STUB/staging/next-step.json"; then pass T22-persona-unresolved-update; else fail T22-persona-unresolved-update "$OUT"; fi
+    rm -rf "$UPDATE_STUB"
+  fi
+  # In update, step-turn.sh target auto-answers ONLY the initial Focused update prompt, never policy/commit prompts
+  if [ -d "$RESULTS/$TEST_RUN/empty-python-cli/foreign/workspace" ]; then
+    # Test update auto-answer guard using the prepared fresh cell's git/workspace temporarily copied into update
+    mkdir -p "$UPDATE_STUB"
+    cp -R "$CELL/workspace" "$UPDATE_STUB/workspace"
+    cp -R "$CELL/git-data" "$UPDATE_STUB/git-data"
+    printf 'gitdir: %s\n' "$UPDATE_STUB/git-data" > "$UPDATE_STUB/workspace/.git"
+    cp "$CELL"/pre-* "$UPDATE_STUB/"
+    mkdir -p "$UPDATE_STUB/staging"
+    "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update lock-agents u-target u-persona > /dev/null
+    printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Choose run","options":[{"text":"Focused update (Recommended)"},{"text":"Full re-audit"}]}]}' > "$UPDATE_STUB/staging/target-turn.txt"
+    run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update target
+    if echo "$OUT" | grep -Fxq "AUTO_ANSWERED_RESUME_TARGET"; then pass T22-update-focused-auto; else fail T22-update-focused-auto "$OUT"; fi
+    printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Structure?","options":[{"text":"Focused files (Recommended)"},{"text":"Compact file"}]}]}' > "$UPDATE_STUB/staging/target-turn.txt"
+    run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update target
+    if echo "$OUT" | grep -Fxq "ASK_PERSONA"; then pass T22-update-blocks-policy-auto; else fail T22-update-blocks-policy-auto "$OUT"; fi
     rm -rf "$UPDATE_STUB"
   fi
   cp "$CELL/staging/persona-test-turn.json" "$CELL/staging/last-target-turn.json"
@@ -532,21 +558,61 @@ R3
   expect_ok T24-tiebreaker-resolved "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
   if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["reviewPath"] == "three-reviewers" and "confidence" not in r and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "advisoryFailures" in r and "filteredDeductions" not in r else 1)' "$CELL/result.json"; then
+sys.exit(0 if r["reviewPath"] == "three-reviewers" and "confidence" not in r and r["verdict"] == "pass" and r["categoryScores"]["maintainabilityAndDocsHygiene"] == 100.0 and "artifactFailedChecks" in r and "advisoryFailures" not in r and "filteredDeductions" not in r else 1)' "$CELL/result.json"; then
     pass T24-tiebreaker-values
   else
     fail T24-tiebreaker-values "$(cat "$CELL/result.json")"
   fi
-  # One clean reviewer is enough: reviewPath is one-reviewer and the cell passes
-  rm -f "$CELL/review-2.json" "$CELL/review-3.json" "$CELL/result.json"
-  expect_ok T24-one-reviewer "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+
+  # Citation bounds: citing non-blind cell files (e.g. transcript.md) is rejected
+  cat > "$CELL/review-2.json" <<'R2_CELL_LEAK'
+{"hardFailure": false, "deductions": [{"anchorId": "MINOR_PROSE_REDUNDANCY", "category": "maintainabilityAndDocsHygiene", "artifactPath": "transcript.md", "line": 1, "quote": "status", "explanation": "Non-blind file"}]}
+R2_CELL_LEAK
+  rm -f "$CELL/review-3.json"
+  expect_fail T24-cite-nonblind-rejected "cites non-existent file" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+
+  # Citation bounds: citing a file only in initial-workspace is rejected for active-rule anchors, allowed for SNAPSHOT_MUTATION_OR_PREMATURE_DELETE
+  printf 'deleted foreign line\n' > "$CELL/initial-workspace/.cursorrules"
+  cat > "$CELL/review-2.json" <<'R2_DEL_BAD'
+{"hardFailure": false, "deductions": [{"anchorId": "ACTIVE_RULE_CONTRADICTION", "category": "policyAndContradictionFidelity", "artifactPath": ".cursorrules", "line": 1, "quote": "deleted foreign line", "explanation": "Already deleted"}]}
+R2_DEL_BAD
+  expect_fail T24-cite-deleted-foreign-rejected "cites deleted initial-workspace file" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  cat > "$CELL/review-2.json" <<'R2_DEL_OK'
+{"hardFailure": false, "deductions": [{"anchorId": "SNAPSHOT_MUTATION_OR_PREMATURE_DELETE", "category": "maintainabilityAndDocsHygiene", "artifactPath": ".cursorrules", "line": 1, "quote": "deleted foreign line", "explanation": "Prematurely deleted before migrating"}]}
+R2_DEL_OK
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  if [ "$RC" -eq 2 ] && echo "$OUT" | grep -Fxq "NEEDS_TIE_BREAKER"; then
+    pass T24-cite-deleted-premature-allowed
+  else
+    fail T24-cite-deleted-premature-allowed "rc=$RC out=$OUT"
+  fi
+  rm -f "$CELL/initial-workspace/.cursorrules" "$CELL/staging/tie-breaker-needed.json"
+
+  # Deterministic artifact failure (e.g. forbidden file .ai/code-style.md) fails score-cell even when both reviewers report 0 deductions
+  cat > "$CELL/review-2.json" <<'R2_CLEAN'
+{"hardFailure": false, "deductions": []}
+R2_CLEAN
+  printf '# Bad unapproved file\n' > "$WORKSPACE/.ai/code-style.md"
+  expect_ok T24-det-artifact-gate-run "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
   if python3 -I -c 'import json,sys
 r = json.load(open(sys.argv[1]))
-sys.exit(0 if r["reviewPath"] == "one-reviewer" and r["verdict"] == "pass" and r["overallMean"] == 100.0 and r["failureKind"] is None else 1)' "$CELL/result.json"; then
-    pass T24-one-reviewer-values
+sys.exit(0 if r["verdict"] == "fail" and r["failureKind"] == "PRODUCT" and r["deterministicChecksPassed"] is False and r["hardFailure"] is False and "scenario artifact assertions" in r["artifactFailedChecks"] and ".ai files reachable from AGENTS.md" in r["artifactFailedChecks"] and r["categoryScores"]["repositoryAndArtifactAccuracy"] == 20.0 else 1)' "$CELL/result.json"; then
+    pass T24-det-artifact-gate
   else
-    fail T24-one-reviewer-values "$(cat "$CELL/result.json" 2>&1)"
+    fail T24-det-artifact-gate "$(cat "$CELL/result.json")"
   fi
+  rm -f "$WORKSPACE/.ai/code-style.md" "$CELL/result.json"
+
+  # Fresh and foreign cells require two blind reviewers even when review-1.json has 0 deductions
+  rm -f "$CELL/review-2.json" "$CELL/review-3.json" "$CELL/result.json"
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
+  if [ "$RC" -eq 3 ] && echo "$OUT" | grep -Fxq "NEEDS_SECOND_REVIEWER"; then
+    pass T24-needs-second-reviewer
+  else
+    fail T24-needs-second-reviewer "rc=$RC out=$OUT"
+  fi
+  printf '{"hardFailure": false, "deductions": []}\n' > "$CELL/review-2.json"
+  expect_ok T24-two-clean-reviewers "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh blind
   # A completed result is never replaced by a stopped-cell record
   expect_fail T24-no-overwrite "refusing to overwrite" "$SCRIPTS/score-cell.sh" "$TEST_RUN" empty-python-cli fresh harness-stopped "late failure"
   expect_ok T24-summary "$SCRIPTS/score-cell.sh" summary "$TEST_RUN" claude-sonnet-5-5 true
@@ -722,10 +788,13 @@ sys.exit(1 if problems else 0)' "$RUBRIC_FILE" "$SCENARIOS"
   expect_fail T82 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
   no_cell T82-nocell empty-python-cli update
 
-  mkdir -p "$WORKSPACE/.ai"
+  mkdir -p "$WORKSPACE/.ai" "$WORKSPACE/docs"
+  printf '# CLI\n\nLast reviewed: %s\n\n- Read `.ai/testing.md` before tests.\n' "$(date -u +%F)" > "$WORKSPACE/AGENTS.md"
+  printf '# Initial sketch\n' > "$WORKSPACE/docs/first-sketch_2026-01-01.md"
   printf '# Other\n\n- x. Project decision\n' > "$WORKSPACE/.ai/other.md"
   expect_fail T79 "no .ai file matches" "$SCRIPTS/prep-cell.sh" "$TEST_RUN2" empty-python-cli update
   no_cell T79-nocell empty-python-cli update
+  rm "$WORKSPACE/.ai/other.md"
 
   printf '# Testing\n\nLast reviewed: %s\n\n- a. Project decision\n' "$(date -u +%F)" > "$WORKSPACE/.ai/testing.md"
   printf '# Tests\n\n- b. Project decision\n' > "$WORKSPACE/.ai/tests.md"
@@ -808,6 +877,7 @@ sys.exit(0 if r["verdict"] == "pass" and r["reviewPath"] == "update-checks-only"
     RULE_S=$(scenario_rule "$s" text)
     printf '{"verdict": "pass"}\n' > "$CELL/result.json"
     mkdir -p "$WORKSPACE/.ai"
+    printf '# %s\n\nLast reviewed: %s\n\n- Read `.ai/%s.md`.\n' "$s" "$(date -u +%F)" "$TOPIC" > "$WORKSPACE/AGENTS.md"
     printf '# %s\n\nLast reviewed: %s\n\n- Existing rule. Project decision\n' "$TOPIC" "$(date -u +%F)" > "$WORKSPACE/.ai/$TOPIC.md"
     run "$SCRIPTS/prep-cell.sh" "$TEST_RUN3" "$s" update
     if [ "$RC" -ne 0 ]; then fail "T84-$s" "update prepare failed: $OUT"; continue; fi
@@ -909,7 +979,7 @@ print("ok")' "$EVAL_DIR" "$SKILL"
   STALE_TARGETS="$README $SKILL $AGENT $EVAL_DIR/rubric.json $SCENARIOS $SCRIPTS/testdata"
   STALE_MISSING=""
   for t in $STALE_TARGETS; do [ -e "$t" ] || STALE_MISSING="$STALE_MISSING $t"; done
-  STALE=$(grep -rnE 'releaseGatePassed|sourceUnchanged|CELL_BLOCKED|single-clean|deterministic-rerun|authorization\.(nd)?json|pending-authorization|compile_auth_json|policySpec|rerunMaintainerRule|rerunInvariants|PRODUCT_FAIL|tie-broken|"confidence"|"filtered"|"safety"' \
+  STALE=$(grep -rnE 'releaseGatePassed|sourceUnchanged|CELL_BLOCKED|single-clean|one-reviewer|advisoryFailures|deterministic-rerun|authorization\.(nd)?json|pending-authorization|compile_auth_json|policySpec|rerunMaintainerRule|rerunInvariants|PRODUCT_FAIL|tie-broken|"confidence"|"filtered"|"safety"' \
     $STALE_TARGETS "$SCRIPTS"/*.sh | grep -v "/test-eval.sh:" | head -3)
   if [ -n "$STALE_MISSING" ]; then fail T112-no-retired-names "scan target missing:$STALE_MISSING"
   elif [ -z "$STALE" ]; then pass T112-no-retired-names

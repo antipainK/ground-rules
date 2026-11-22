@@ -82,13 +82,25 @@ for entry in entries:
         bindings.append(matches[0])
     if not selected and free_text is None:
         raise SystemExit("maintainer-answers entry has neither option nor free text")
-    out.append({
+    presented_options = [
+        {
+            "text": o.get("text"),
+            "affectedPaths": o.get("affectedPaths", []),
+        }
+        for o in options
+        if isinstance(o, dict)
+    ]
+    rec_out = {
         "questionIndex": entry["questionIndex"],
         "questionText": q.get("text"),
+        "options": presented_options,
         "selectedOptions": selected,
         "freeText": free_text,
         "selectedBindings": bindings,
-    })
+    }
+    if "turnIndex" in entry:
+        rec_out["turnIndex"] = entry["turnIndex"]
+    out.append(rec_out)
 json.dump(out, open(sys.argv[3], "w"), indent=1)' \
   "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.ndjson" "$NEW/maintainer-answers.json"
 

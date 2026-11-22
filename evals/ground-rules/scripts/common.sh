@@ -236,24 +236,77 @@ with open(out,"w") as f:
 
 # Writes created.txt, deleted.txt, modified.txt and changed.txt (one repo-relative path per
 # line) into the existing directory $1, for the cell set up by cell_paths.
-# Compares current WORKSPACE directly against CELL/initial-workspace so deleted tracked
-# files are never misclassified as modified.
+# Compares current WORKSPACE directly against CELL/initial-workspace in one Python pass
+# so deleted tracked files are never misclassified as modified and lockfiles do not spawn
+# one subprocess per file.
 write_changed_lists() {
   local out="$1"
-  export LC_ALL=C
-  (cd "$WORKSPACE" && find . -path ./.git -prune -o -type f -print) | sed 's|^\./||' | sort > "$out/current.txt"
-  sed 's|^\./||' "$CELL/initial-files.txt" | sort > "$out/initial.txt"
-  comm -13 "$out/initial.txt" "$out/current.txt" > "$out/created.txt"
-  comm -23 "$out/initial.txt" "$out/current.txt" > "$out/deleted.txt"
-  : > "$out/modified.txt"
-  comm -12 "$out/initial.txt" "$out/current.txt" > "$out/common.txt"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    if [ -f "$CELL/initial-workspace/$f" ] && [ -f "$WORKSPACE/$f" ] \
-      && ! same_file_state "$CELL/initial-workspace/$f" "$WORKSPACE/$f"; then
-      echo "$f" >> "$out/modified.txt"
-    fi
-  done < "$out/common.txt"
-  sort -u "$out/modified.txt" -o "$out/modified.txt"
-  cat "$out/created.txt" "$out/deleted.txt" "$out/modified.txt" | sort -u > "$out/changed.txt"
+  python3 -I -c 'import os,stat,sys
+ws, cell, out = sys.argv[1:4]
+init_ws = os.path.join(cell, "initial-workspace")
+init_list_path = os.path.join(cell, "initial-files.txt")
+
+def same_state(a, b):
+    try:
+        sa, sb = os.lstat(a), os.lstat(b)
+        if stat.S_IFMT(sa.st_mode) != stat.S_IFMT(sb.st_mode) or stat.S_IMODE(sa.st_mode) != stat.S_IMODE(sb.st_mode):
+            return False
+        if stat.S_ISREG(sa.st_mode):
+            if sa.st_size != sb.st_size:
+                return False
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                return fa.read() == fb.read()
+        if stat.S_ISLNK(sa.st_mode):
+            return os.readlink(a) == os.readlink(b)
+        return True
+    except OSError:
+        return False
+
+current = set()
+for base, dirs, files in os.walk(ws, topdown=True, followlinks=False):
+    if base == ws and ".git" in dirs:
+        dirs.remove(".git")
+    for name in files:
+        full = os.path.join(base, name)
+        if full == os.path.join(ws, ".git"):
+            continue
+        try:
+            st = os.lstat(full)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            current.add(os.path.relpath(full, ws))
+
+initial = set()
+with open(init_list_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+    for line in f:
+        rel = line.rstrip("\n")
+        if rel.startswith("./"):
+            rel = rel[2:]
+        if rel:
+            initial.add(rel)
+
+created = sorted(current - initial)
+deleted = sorted(initial - current)
+common = sorted(initial & current)
+modified = []
+for rel in common:
+    ia = os.path.join(init_ws, rel)
+    wa = os.path.join(ws, rel)
+    if os.path.isfile(ia) and os.path.isfile(wa) and not same_state(ia, wa):
+        modified.append(rel)
+changed = sorted(set(created) | set(deleted) | set(modified))
+
+def dump_lines(name, items):
+    with open(os.path.join(out, name), "w", encoding="utf-8", errors="surrogateescape") as f:
+        for item in items:
+            f.write(item + "\n")
+
+dump_lines("current.txt", sorted(current))
+dump_lines("initial.txt", sorted(initial))
+dump_lines("created.txt", created)
+dump_lines("deleted.txt", deleted)
+dump_lines("common.txt", common)
+dump_lines("modified.txt", modified)
+dump_lines("changed.txt", changed)' "$WORKSPACE" "$CELL" "$out"
 }

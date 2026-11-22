@@ -236,17 +236,35 @@ if status == "complete":
     })
     raise SystemExit(0)
 
-# Check if all questions in this needs-answer turn are purely mechanical lifecycle prompts
+# Check if all questions in this needs-answer turn are purely mechanical lifecycle prompts.
+# In update, ONLY the initial Focused update run-choice prompt may be auto-answered; any
+# subsequent or policy/lifecycle prompt must reach the persona and stop the cell as PRODUCT.
 scenario = json.load(open(scenario_file))
 ps = scenario.get("approvedPolicy", {})
+answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+existing_turn_max = 0
+already_answered = False
+if os.path.isfile(answers_ndjson):
+    with open(answers_ndjson, "r", encoding="utf-8") as ef:
+        for line_idx, line in enumerate(ef, 1):
+            if line.strip():
+                already_answered = True
+                try:
+                    rec_obj = json.loads(line)
+                    existing_turn_max = max(existing_turn_max, int(rec_obj.get("turnIndex", line_idx)))
+                except Exception:
+                    existing_turn_max = max(existing_turn_max, line_idx)
+next_turn_index = existing_turn_max + 1
+
 auto_answers = []
 for idx, q in enumerate(obj["questions"], 1):
     opts = [o["text"] for o in q["options"]]
     matched = None
     reason = None
-    if state == "update" and any(o.startswith("Focused update") for o in opts):
-        matched = next(o for o in opts if o.startswith("Focused update"))
-        reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
+    if state == "update":
+        if not already_answered and len(obj["questions"]) == 1 and any(o.startswith("Focused update") for o in opts):
+            matched = next(o for o in opts if o.startswith("Focused update"))
+            reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
     elif state == "foreign" and any(o.startswith(scenario.get("foreignRunChoice", "__none__")) for o in opts):
         frc = scenario["foreignRunChoice"]
         matched = next(o for o in opts if o.startswith(frc))
@@ -268,6 +286,7 @@ for idx, q in enumerate(obj["questions"], 1):
         reason = "Document rules only; do not create a manifest or commands."
     if matched is not None:
         auto_answers.append({
+            "turnIndex": next_turn_index,
             "questionIndex": idx,
             "question": q,
             "selectedOptions": [matched],
@@ -276,7 +295,6 @@ for idx, q in enumerate(obj["questions"], 1):
         })
 
 if len(auto_answers) == len(obj["questions"]):
-    answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
     with open(answers_ndjson, "a", encoding="utf-8") as af:
         for entry in auto_answers:
             af.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -375,6 +393,19 @@ if not isinstance(answers, list) or len(answers) != len(questions):
 
 records = []
 relay = []
+answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+existing_turn_max = 0
+if os.path.isfile(answers_ndjson):
+    with open(answers_ndjson, "r", encoding="utf-8") as ef:
+        for line_idx, line in enumerate(ef, 1):
+            if line.strip():
+                try:
+                    rec_obj = json.loads(line)
+                    existing_turn_max = max(existing_turn_max, int(rec_obj.get("turnIndex", line_idx)))
+                except Exception:
+                    existing_turn_max = max(existing_turn_max, line_idx)
+next_turn_index = existing_turn_max + 1
+
 for idx, (q, ans) in enumerate(zip(questions, answers), 1):
     if not isinstance(ans, dict) or ans.get("questionIndex") != idx:
         write_next({
@@ -414,6 +445,7 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
             })
             raise SystemExit(0)
     records.append({
+        "turnIndex": next_turn_index,
         "questionIndex": idx,
         "question": q,
         "selectedOptions": sel,
@@ -426,7 +458,6 @@ for idx, (q, ans) in enumerate(zip(questions, answers), 1):
         "freeText": ft
     })
 
-answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
 with open(answers_ndjson, "a", encoding="utf-8") as af:
     for r in records:
         af.write(json.dumps(r, ensure_ascii=False) + "\n")

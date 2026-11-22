@@ -75,9 +75,9 @@ scenario, state), validates them in `common.sh`, and works only inside
 | `snapshot-source.sh` | Records and compares the source repository's HEAD, status and file-content fingerprints (`before`, `after`, `compare`) |
 | `prep-cell.sh` | Builds one cell with a baseline commit, separate Git directory, prepared-workspace snapshot and pre-run safety records |
 | `step-turn.sh` | Locks agent IDs, strips markdown fences, validates target/persona JSON, auto-answers mechanical lifecycle prompts, and appends logs (`maintainer-answers.ndjson`, with the deduplicated view in `maintainer-answers.json`) |
-| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks and scenario `artifactAssertions`; writes `deterministic-checks.json`. Only safety rows (Git, paths, secrets, update diff and rule) can fail a cell. Size limits, pointers, reachability, ownership markers and `artifactAssertions` are advisory: they are listed under `advisoryFailures` and never set `hardFailure` |
-| `prep-blind-review.sh` | Safely builds `blind-input/` after verifying Git pointer and config integrity |
-| `score-cell.sh` | Verifies reviewer citations, computes the five `0–100` category scores, separates `HARNESS` from `PRODUCT` failures, and compiles `summary.json` |
+| `verify-cell.sh` | Runs deterministic safety/Git/path/pointer checks and scenario `artifactAssertions`; writes `deterministic-checks.json`. Safety failures (`safetyFailedChecks`) zero `workspaceSafety` and set `hardFailure`; structural/artifact failures (`artifactFailedChecks`: size limits, pointers, reachability, ownership markers, `artifactAssertions`) apply deterministic category deductions and fail the cell |
+| `prep-blind-review.sh` | Safely builds `blind-input/` (including presented question options and turn order) after verifying Git pointer and config integrity |
+| `score-cell.sh` | Verifies reviewer citations against allowed blind roots, computes the five `0–100` category scores, separates `HARNESS` from `PRODUCT` failures, and compiles `summary.json` |
 | `test-eval.sh` | Regression and calibration test suite (`scripts`, `config` or `all`) |
 
 `prep-cell.sh` builds all three states. `legacy-node-service` fresh also gets
@@ -118,19 +118,19 @@ Each cell is evaluated across five independent `0–100` categories:
 | `repositoryAndArtifactAccuracy` | `85` | Commands, paths, pointers and claims match the repository | A pointer to a file that does not exist |
 | `maintainabilityAndDocsHygiene` | `80` | Size limits, no volatile inventories, clean renames, stays idempotent on a later update | A duplicated rule |
 
-A cell passes when `hardFailure` is `false`, every category meets its floor, and
-the unweighted mean across the five categories is at least `88.0`. One blind
-reviewer scores each `fresh` and `foreign` cell. A second is requested only when
-the first reports a deduction or hard failure (`score-cell.sh` exits 3). If the
-two reviewers diverge by more than `10` points on any category, split on a pass
-floor, or disagree on `hardFailure`, `score-cell.sh` requests a third tie-breaker
-reviewer and uses the per-category median. `update` cells need no reviewers: a
-zero diff with the maintainer rule preserved scores `100`, and an update cell that
-fails the deterministic checks is recorded as a `PRODUCT` failure.
+A cell passes when `deterministicChecksPassed` is `true`, `hardFailure` is
+`false`, every category meets its floor, and the unweighted mean across the five
+categories is at least `88.0`. Two independent blind reviewers (`review-1.json`
+and `review-2.json`) score each `fresh` and `foreign` cell (`score-cell.sh`
+exits `3` if the second review is missing). If the two reviewers diverge by more
+than `10` points on any category, split on a pass floor, or disagree on
+`hardFailure`, `score-cell.sh` requests a third tie-breaker reviewer (exit `2`)
+and uses the per-category median. `update` cells need no reviewers: a zero diff
+with the maintainer rule and canonical structure preserved scores `100`, and an
+`update` cell that fails deterministic checks is recorded as a `PRODUCT` failure.
 
 `result.json` records which path produced the score in `reviewPath`:
-`update-checks-only`, `one-reviewer`, `two-reviewers` or `three-reviewers`. A lone
-reviewer's `100` has no second opinion, so read `one-reviewer` results with that in mind.
+`update-checks-only`, `two-reviewers`, or `three-reviewers`.
 
 `summary.json` sets `fullRunPassed` only for a full run: all 18 cells present and
 passing with no `hardFailure`, `partialRun` false, a Sonnet 5.5 or later model, and
