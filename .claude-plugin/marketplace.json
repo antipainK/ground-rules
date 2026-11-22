@@ -1,6 +1,6 @@
 {
   "name": "ground-rules",
-  "description": "Interactively set up, migrate or maintain repository AI conventions in AGENTS.md, .ai/ and docs/.",
+  "description": "Set up, migrate or maintain repository AI conventions in AGENTS.md, .ai/ and docs/ interactively or automatically.",
   "owner": {
     "name": "Wojciech Kosztyła"
   },
@@ -9,7 +9,7 @@
       "name": "ground-rules",
       "version": "0.1.0",
       "source": "./plugins/ground-rules",
-      "description": "Interactive skill that inspects a repo, migrates foreign instructions, updates team-owned rules, and verifies AGENTS.md plus .ai/."
+      "description": "Skill that inspects a repo, migrates foreign instructions, updates team-owned rules, and verifies AGENTS.md plus .ai/ interactively or in automatic mode."
     }
   ]
 }

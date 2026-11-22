@@ -1,7 +1,7 @@
 {
   "name": "ground-rules",
   "version": "0.1.0",
-  "description": "Interactively set up, migrate or maintain repository AI conventions in AGENTS.md, .ai/ and docs/.",
+  "description": "Set up, migrate or maintain repository AI conventions in AGENTS.md, .ai/ and docs/ interactively or automatically.",
   "author": {
     "name": "Wojciech Kosztyła"
   },
