@@ -94,5 +94,42 @@
     "A deferred typing rule is explicitly marked After migration.",
     "No dependency or stricter check is enabled without approval.",
     "Existing failures are reported and never fixed as application code."
-  ]
+  ],
+  "autoConfig": {
+    "includeForeignOverlay": false,
+    "personalConfigMarkdown": "# Operator Coding Preferences (@alex-dev, /Users/alex-dev/dotfiles/operator-preferences.md)\n\n- In Python repositories checked with mypy, name a specific error code on `# type: ignore[<code>]` comments instead of using blanket `# type: ignore`.\n- Format all Python files to 88-character lines with Black and run tests via `poetry run pytest`.\n",
+    "forbiddenLeakSubstrings": [
+      "/Users/alex-dev",
+      "@alex-dev",
+      "operator-preferences.md"
+    ]
+  },
+  "autoArtifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/code-style.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/todo/*.md"
+    ],
+    "forbiddenFiles": [
+      ".ai/style.md",
+      ".ai/typing.md"
+    ],
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "poetry run",
+        "Black",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ],
+      ".ai/code-style.md": [
+        "poetry run",
+        "88-character",
+        "Black",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ]
+    }
+  }
 }

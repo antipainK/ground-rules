@@ -48,6 +48,9 @@ case "$MODE" in
     TARGET_ID="$5"
     PERSONA_ID="${6:-}"
     [ -n "$TARGET_ID" ] || die "target agent id must be non-empty"
+    if [ "$STATE" = "auto" ] && [ -n "$PERSONA_ID" ]; then
+      die "persona agent is forbidden in auto state"
+    fi
     if [ -n "$PERSONA_ID" ]; then
       [ "$TARGET_ID" != "$PERSONA_ID" ] || die "target and persona agent ids must be distinct"
     fi
@@ -79,6 +82,22 @@ with open(out_path, "w", encoding="utf-8") as f:
       rm -f "$INPUT"
       echo "CELL_STOPPED"
       exit 0
+    fi
+    if [ "$STATE" = "auto" ]; then
+      if [ -L "$CELL/personal-config" ] || [ ! -f "$CELL/personal-config/operator-preferences.md" ] || [ ! -f "$CELL/pre-personal-config-manifest.txt" ]; then
+        printf '{"action":"CELL_STOPPED","failureKind":"PRODUCT","reason":"prepared personal config missing on target turn"}\n' > "$CELL/staging/next-step.json"
+        rm -f "$INPUT"
+        echo "CELL_STOPPED"
+        exit 0
+      fi
+      write_tree_manifest "$CELL/personal-config" "$CELL/staging/.pc-manifest.tmp"
+      if ! cmp -s "$CELL/staging/.pc-manifest.tmp" "$CELL/pre-personal-config-manifest.txt"; then
+        rm -f "$CELL/staging/.pc-manifest.tmp" "$INPUT"
+        printf '{"action":"CELL_STOPPED","failureKind":"PRODUCT","reason":"prepared personal config modified on target turn"}\n' > "$CELL/staging/next-step.json"
+        echo "CELL_STOPPED"
+        exit 0
+      fi
+      rm -f "$CELL/staging/.pc-manifest.tmp"
     fi
 
     python3 -I -c 'import json,os,re,sys
@@ -122,6 +141,28 @@ if not isinstance(obj, dict) or "status" not in obj:
 
 status = obj.get("status")
 if status == "needs-answer":
+    if state == "auto":
+        with open(os.path.join(cell, "transcript.md"), "a", encoding="utf-8") as tf:
+            tf.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        stopped_record = dict(obj)
+        stopped_record["_answered"] = True
+        with open(os.path.join(cell, "staging", "last-target-turn.json"), "w", encoding="utf-8") as ltf:
+            json.dump(stopped_record, ltf, ensure_ascii=False, indent=2)
+            ltf.write("\n")
+        answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
+        if not os.path.isfile(answers_ndjson):
+            open(answers_ndjson, "w", encoding="utf-8").close()
+        answers_json = os.path.join(cell, "maintainer-answers.json")
+        if not os.path.isfile(answers_json):
+            with open(answers_json, "w", encoding="utf-8") as aj:
+                aj.write("[]\n")
+        write_next({
+            "action": "CELL_STOPPED",
+            "failureKind": "PRODUCT",
+            "questionIndex": 1,
+            "reason": "target asked a user question in auto mode"
+        })
+        raise SystemExit(0)
     qs = obj.get("questions")
     if not isinstance(qs, list) or not qs:
         write_next({
@@ -408,6 +449,12 @@ else:
   persona)
     rm -f "$CELL/staging/next-step.json"
     INPUT="$CELL/staging/persona-turn.txt"
+    if [ "$STATE" = "auto" ]; then
+      rm -f "$INPUT"
+      printf '{"action":"CELL_STOPPED","failureKind":"PRODUCT","questionIndex":1,"reason":"auto cell cannot accept persona answers"}\n' > "$CELL/staging/next-step.json"
+      echo "CELL_STOPPED"
+      exit 0
+    fi
     [ -s "$INPUT" ] || die "no persona turn input at $INPUT"
     [ -f "$CELL/staging/last-target-turn.json" ] || die "no last-target-turn.json to bind persona answers to"
 

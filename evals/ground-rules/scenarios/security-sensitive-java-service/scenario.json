@@ -105,5 +105,49 @@
     "Existing settings keys survive the permissions merge.",
     "Path-scoped security guidance retains its scope.",
     "Local overrides are reported separately and never enter shared migration unless explicitly included."
-  ]
+  ],
+  "autoConfig": {
+    "includeForeignOverlay": true,
+    "personalConfigMarkdown": "# Operator Coding Preferences (@alex-dev, /Users/alex-dev/dotfiles/operator-preferences.md)\n\n- Never commit secret or token values; read secrets from environment variables and keep committed example configuration placeholders empty.\n- Build Java services with `./gradlew check` and store sample test credentials directly in `application.properties.example`.\n",
+    "forbiddenLeakSubstrings": [
+      "/Users/alex-dev",
+      "@alex-dev",
+      "operator-preferences.md"
+    ]
+  },
+  "autoArtifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/security.md",
+      ".claude/settings.json",
+      "application.properties.example",
+      ".windsurfrules",
+      ".github/instructions/security.instructions.md",
+      "CLAUDE.local.md"
+    ],
+    "requiredSubstrings": {
+      "application.properties.example": [
+        "SERVICE_TOKEN="
+      ]
+    },
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "Enforced in CI by",
+        "gradlew",
+        "local-java",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ],
+      ".ai/security.md": [
+        "Enforced in CI by",
+        "gradlew",
+        "local-java",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ],
+      ".claude/settings.json": [
+        "Edit(/AGENTS.md)"
+      ]
+    }
+  }
 }

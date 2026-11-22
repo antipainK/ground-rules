@@ -1,10 +1,12 @@
 #!/bin/bash
 # Usage: prep-blind-review.sh <run-id> <scenario> <state>
 # Builds <cell>/blind-input/ for the blind evaluators:
-#   rubric.json        the 5x 0-100 category rubric, deduction anchors, and hard failures
+#   rubric.json        the 5x 0-100 category rubric, deduction anchors, runMode, and hard failures
 #   changed-paths.txt  created, deleted and modified paths, one per line
-#   maintainer-answers.json exact accepted answers and their selected bindings
+#   maintainer-answers.json exact accepted answers and their selected bindings ([] in auto)
 #   decision-record.json the target's exact sanitized Ground Rules decision record
+#   final-report.md    the target's final report when present
+#   personal-config.md the simulated operator personal preferences (in auto state only)
 # The folder is built aside and moved into place at the end, so a failure leaves nothing
 # behind and the script can be run again.
 
@@ -12,9 +14,10 @@
 
 [ $# -eq 3 ] || die "usage: prep-blind-review.sh <run-id> <scenario> <state>"
 cell_paths "$1" "$2" "$3"
+STATE="$3"
 [ -d "$WORKSPACE" ] || die "no workspace: $WORKSPACE"
 [ -f "$CELL/initial-files.txt" ] || die "no pre-run records; was the cell prepared with prep-cell.sh?"
-[ -d "$CELL/initial-workspace" ] || die "prepared initial workspace is missing"
+[ -d "$CELL/initial-workspace" ] && [ ! -L "$CELL/initial-workspace" ] || die "prepared initial workspace is missing"
 [ -f "$CELL/pre-initial-workspace-manifest.txt" ] || die "prepared initial workspace manifest is missing"
 
 BLIND="$CELL/blind-input"
@@ -30,6 +33,14 @@ write_tree_manifest "$CELL/initial-workspace" "$TMP/initial-workspace-manifest.t
 cmp -s "$TMP/initial-workspace-manifest.txt" "$CELL/pre-initial-workspace-manifest.txt" \
   || die "prepared initial workspace changed after cell preparation"
 
+if [ "$STATE" = "auto" ]; then
+  [ ! -L "$CELL/personal-config" ] && [ -f "$CELL/personal-config/operator-preferences.md" ] || die "prepared personal config is missing"
+  [ -f "$CELL/pre-personal-config-manifest.txt" ] || die "prepared personal config manifest is missing"
+  write_tree_manifest "$CELL/personal-config" "$TMP/personal-config-manifest.txt"
+  cmp -s "$TMP/personal-config-manifest.txt" "$CELL/pre-personal-config-manifest.txt" \
+    || die "prepared personal config changed after cell preparation"
+fi
+
 verify_git_safety || die "Git pointer, configuration or symlink safety check failed before building blind input"
 
 [ -f "$CELL/maintainer-answers.json" ] || die "maintainer-answers.json is missing"
@@ -40,12 +51,16 @@ write_changed_lists "$TMP"
 
 python3 -I -c 'import json,sys
 m = json.load(open(sys.argv[1], encoding="utf-8"))
+state = sys.argv[3]
 out = {
+    "runMode": "auto" if state == "auto" else "interactive",
+    "state": state,
     "commonDecisions": m.get("commonDecisions", []),
+    "autoAuthorizationRules": m.get("autoAuthorizationRules", []),
     "rubric": m["rubric"],
     "hardFailures": m["hardFailures"],
 }
-json.dump(out, open(sys.argv[2], "w", encoding="utf-8"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.json"
+json.dump(out, open(sys.argv[2], "w", encoding="utf-8"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.json" "$STATE"
 
 python3 -I -c 'import json,sys
 compiled = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -70,6 +85,9 @@ for entry, record in zip(raw, raw_lines):
         entries.append(entry)
 if compiled != entries:
     raise SystemExit("maintainer-answers.json does not match the complete deduplicated maintainer-answers.ndjson log")
+state = sys.argv[4]
+if state == "auto" and entries:
+    raise SystemExit("auto cell must have empty maintainer-answers")
 out = []
 for entry in entries:
     q = entry["question"]
@@ -106,7 +124,7 @@ for entry in entries:
         rec_out["turnIndex"] = entry["turnIndex"]
     out.append(rec_out)
 json.dump(out, open(sys.argv[3], "w", encoding="utf-8"), indent=1)' \
-  "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.ndjson" "$NEW/maintainer-answers.json"
+  "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.ndjson" "$NEW/maintainer-answers.json" "$STATE"
 
 python3 -I -c 'import json,sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -117,6 +135,10 @@ json.dump(record, open(sys.argv[2], "w", encoding="utf-8"), indent=1)' \
 
 if [ -f "$CELL/final-report.md" ]; then
   cp "$CELL/final-report.md" "$NEW/final-report.md"
+fi
+
+if [ "$STATE" = "auto" ]; then
+  cp "$CELL/personal-config/operator-preferences.md" "$NEW/personal-config.md"
 fi
 
 : > "$NEW/changed-paths.txt"

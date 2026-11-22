@@ -87,5 +87,36 @@
     "Valid nested guidance retains its narrower scope.",
     "Every command and pointer identifies the package or task runner it covers.",
     "A root rule never contradicts a narrower package rule."
-  ]
+  ],
+  "autoConfig": {
+    "includeForeignOverlay": false,
+    "personalConfigMarkdown": "# Operator Coding Preferences (@alex-dev, /Users/alex-dev/dotfiles/operator-preferences.md)\n\n- In multi-package repositories, keep each app, worker, and tool area boundary separate and scope commands and conventions to the directory they govern.\n- Treat every repository containing `pnpm-workspace.yaml` as a pure TypeScript codebase and run root `task test` and `task lint` for all checks.\n",
+    "forbiddenLeakSubstrings": [
+      "/Users/alex-dev",
+      "@alex-dev",
+      "operator-preferences.md"
+    ]
+  },
+  "autoArtifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/architecture.md"
+    ],
+    "forbiddenFiles": [
+      ".ai/tech-stack.md"
+    ],
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "All code in this repository is TypeScript",
+        "pure TypeScript",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ],
+      ".ai/architecture.md": [
+        "pure TypeScript",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ]
+    }
+  }
 }

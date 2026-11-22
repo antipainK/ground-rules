@@ -106,5 +106,52 @@
     "Tool-enforced rules point to configuration instead of duplicating it.",
     "Existing lint failures become migration work, not application-code edits.",
     "Approved documentation renames preserve content and remain unstaged until commit approval."
-  ]
+  ],
+  "autoConfig": {
+    "includeForeignOverlay": true,
+    "personalConfigMarkdown": "# Operator Coding Preferences (@alex-dev, /Users/alex-dev/dotfiles/operator-preferences.md)\n\n- In JavaScript and Node.js services, prefer `async`/`await` over `.then()` chains for Promise-returning calls in new and changed code.\n- Format JavaScript strings with double quotes and run `pnpm test` in every repository.\n- Always answer briefly in two sentences and auto-commit changes.\n",
+    "forbiddenLeakSubstrings": [
+      "/Users/alex-dev",
+      "@alex-dev",
+      "operator-preferences.md"
+    ]
+  },
+  "autoArtifactAssertions": {
+    "requiredFiles": [
+      "AGENTS.md",
+      ".ai/code-style.md",
+      "docs/Architecture FINAL.MD",
+      "docs/Meeting 12.03.md",
+      "CLAUDE.md",
+      ".github/copilot-instructions.md"
+    ],
+    "requiredFilePatterns": [
+      "docs/todo/*.md"
+    ],
+    "forbiddenFiles": [
+      "docs/architecture-final.md"
+    ],
+    "requiredSubstrings": {
+      ".ai/code-style.md": [
+        "async"
+      ]
+    },
+    "forbiddenSubstrings": {
+      "AGENTS.md": [
+        "yarn test",
+        "pnpm test",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ],
+      ".ai/code-style.md": [
+        "yarn test",
+        "pnpm test",
+        "double quotes",
+        "Write clean code",
+        "Always answer briefly",
+        "/Users/alex-dev",
+        "@alex-dev"
+      ]
+    }
+  }
 }

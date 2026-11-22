@@ -48,7 +48,9 @@ Accept optional scenario and state filters from the invocation. By default, run
 all six scenarios (`empty-python-cli`, `legacy-node-service`,
 `polyglot-monorepo`, `enforcement-heavy-python-api`,
 `documentation-heavy-rust-workspace`, `security-sensitive-java-service`) in
-`fresh`, `foreign`, and `update` states.
+`fresh`, `foreign`, and `update` states (18 cells). When the operator requests
+`auto` (for the 6-cell Automatic Mode suite) or `--with-auto` (24 cells:
+`fresh`, `foreign`, `update`, and `auto`), include the `auto` state as well.
 
 ### Qualifying model and cost discipline
 
@@ -56,12 +58,12 @@ A qualifying run must use Claude Sonnet 5.5 or a later Sonnet model for the
 orchestrator and target agents. To keep token cost low without reducing target
 evaluation quality:
 - Launch **persona** agents with `model: "haiku"` (when `step-turn.sh` emits
-  `ASK_PERSONA`).
+  `ASK_PERSONA`; `auto` cells never launch a persona agent).
 - At Step 9 (`RUN_WORKFLOW_REVIEW`), launch **one** `eval-reviewer` agent
   (`round-1-reviewer-a.json`), matching the skill's single Step-9 reviewer.
 - For `update` cells, skip launching blind reviewers completely: `score-cell.sh`
   scores a zero-diff `update` deterministically from `verify-cell.sh`.
-- For `fresh` and `foreign` cells, launch **two** independent blind
+- For `fresh`, `foreign`, and `auto` cells, launch **two** independent blind
   `eval-reviewer` agents in parallel (`review-1.json` and `review-2.json`);
   launch a third tie-breaker (`review-3.json`) only if `score-cell.sh` exits
   with `NEEDS_TIE_BREAKER` (exit code 2).
@@ -79,9 +81,9 @@ Before creating files or agents, ask the operator to confirm:
 1. selected scenarios and states;
 2. that up to three cells will run concurrently; and
 3. that each cell uses a lean agent budget: 1 target (Sonnet), at most 1 persona
-   (Haiku, skipped when `step-turn.sh` auto-answers), 1 Step-9 workflow reviewer
-   (0 in `update`), and 2 blind reviewers in `fresh`/`foreign` (0 in `update`,
-   plus a 3rd tie-breaker only when the two reviewers diverge).
+   (Haiku, 0 in `auto` and skipped when `step-turn.sh` auto-answers), 1 Step-9
+   workflow reviewer (0 in `update`), and 2 blind reviewers in `fresh`/`foreign`/`auto`
+   (0 in `update`, plus a 3rd tie-breaker only when the two reviewers diverge).
 
 Use the native `AskUserQuestion` tool for these choices whenever it is
 available. Do not interpret approval of the harness as answers to Ground Rules
@@ -106,6 +108,9 @@ evals/ground-rules/results/<run-id>/
     foreign/git-data/
     update/workspace/
     update/git-data/
+    auto/workspace/
+    auto/git-data/
+    auto/personal-config/operator-preferences.md
     <state>/initial-workspace/
     <state>/staging/
     <state>/blind-input/
@@ -165,9 +170,9 @@ evals/ground-rules/scripts/prep-cell.sh <run-id> <scenario> <state>
 
 Run cells in dependency-aware waves of up to three concurrent cells:
 
-1. `fresh` cells;
+1. `fresh` cells (and `auto` cells when selected);
 2. `foreign` cells;
-3. `update` cells whose `fresh` cell has `"verdict": "pass"` in `result.json` (when a `fresh` cell did not pass, record its `update` cell immediately with `score-cell.sh <run-id> <scenario> update product-fail "skipped because fresh cell failed"` so all 18 cells have `result.json`).
+3. `update` cells whose `fresh` cell has `"verdict": "pass"` in `result.json` (when a `fresh` cell did not pass, record its `update` cell immediately with `score-cell.sh <run-id> <scenario> update product-fail "skipped because fresh cell failed"` so all 18 baseline cells have `result.json`).
 
 If `prep-cell.sh` fails for an `update` cell because the `fresh` output lacked a valid `Last reviewed` date or unambiguous `.ai/*.md` topics, record `product-fail`; for any other `prep-cell.sh` failure, record:
 `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> harness-stopped "<reason>"`
@@ -195,10 +200,10 @@ evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> lock-agents 
 ### Target agent
 
 Give the target only:
-- the absolute workspace path (it must never read, copy, or write files in `/tmp` or outside its workspace);
-- the `<run-id>`, `<scenario>`, and `<state>` so it can call `step-turn.sh ... apply-fs` for approved file renames or deletions without triggering raw `rm`/`mv` permission prompts;
+- the absolute workspace path (it must never touch `/tmp`, never write outside its workspace, and never read files outside its workspace except read-only access to `plugins/ground-rules/skills/ground-rules/SKILL.md` and, in `auto`, `evals/ground-rules/results/<run-id>/<scenario>/auto/personal-config/operator-preferences.md`);
+- the `<run-id>`, `<scenario>`, and `<state>` so it can call `step-turn.sh ... apply-fs` for approved file renames or deletions without triggering raw `rm`/`mv` permission prompts (treat `<run-id>` and `<scenario>` strictly as opaque CLI identifiers—never infer project language, stack, or intent from `<scenario>` or parent directory names outside `workspace/`);
 - the Ground Rules skill source path (`plugins/ground-rules/skills/ground-rules/SKILL.md`);
-- the request to set up or audit repository conventions;
+- the request to set up or audit repository conventions: across **all** states (`fresh`, `foreign`, `update`, `auto`), never read host `~/.claude/` files and ignore any ambient host user/memory preferences (treat external session personal config as empty in `fresh`/`foreign`/`update`; in `auto`, read **only** `evals/ground-rules/results/<run-id>/<scenario>/auto/personal-config/operator-preferences.md` read-only as the simulated session operator coding preferences, while repo-local files inside `workspace/` such as `CLAUDE.local.md` may still be inspected read-only per Step 1.2; in `auto`, execute Ground Rules in **Automatic mode (`auto`)**—never emit `status: "needs-answer"`, **but still pause at Step 9 to return `status: "needs-workflow-review"`** so the harness runs Step 9's fresh `eval-reviewer` before returning `status: "complete"`);
 - the state name;
 - the safety boundary; and
 - these tool-permission rules (to avoid triggering interactive permission prompts while keeping strict sandbox security):
@@ -232,7 +237,7 @@ At every user decision, stop and return one JSON object (use `"options": []` onl
 }
 ```
 
-At Ground Rules Step 9 return:
+At Ground Rules Step 9 (including in `auto` mode, unless Step 9 is skipped on a zero-defect Focused update or zero-write abort) return:
 
 ```json
 {
@@ -244,7 +249,7 @@ At Ground Rules Step 9 return:
       "file": ".ai/<topic>.md or docs/<path>.md",
       "scope": "repo or path glob",
       "wording": "exact authorized rule text or move/rename/delete action",
-      "origin": "explicit answer | existing team policy | Keep/Rewrite verdict | Delete verdict | enforcement pointer | review fix",
+      "origin": "explicit answer | existing team policy | Keep/Rewrite verdict | Delete verdict | enforcement pointer | auto standard | personal config | repo structure | review fix",
       "source": "Project decision, checking config path, or fetched URL + verbatim supporting sentence"
     }
   ]
@@ -330,7 +335,9 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    - `AUTO_ANSWERED_RESUME_TARGET`: resume `resumeAgentId` (target) with
      `relayAnswers`. No persona call is needed.
    - `CELL_STOPPED`: record it from `next-step.json`'s `failureKind`: `PRODUCT`
-     (an `update` target asked a non-`Focused update` or follow-up question) with
+     (an `update` target asked a non-`Focused update`/follow-up question, an
+     `auto` target asked any user question, or workspace/personal-config safety
+     failed) with
      `score-cell.sh <run-id> <scenario> <state> product-fail "<reason>"`, otherwise
      `score-cell.sh <run-id> <scenario> <state> harness-stopped "<reason>"`.
    - `ASK_PERSONA`: if `resumeAgentId` is `null`, launch the persona agent once
@@ -354,8 +361,9 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      (continuing even if it exits `1`; do not pass `deterministic-checks.json`
      to the reviewer), launch one `eval-reviewer` agent giving it only
      `<cell>/workspace/`, `<cell>/initial-workspace/`, `<cell>/decision-record.json`,
+     (plus `<cell>/personal-config/operator-preferences.md` and `runMode: "auto"` when `<state>` is `auto`),
      `writtenPaths`, and `plugins/ground-rules/skills/ground-rules/SKILL.md`,
-     asking for JSON `{"findings": [{"severity": "blocker|major|deterministic-minor|stylistic-nitpick", "file": "<rel-path>", "line": 1, "quote": "<exact single-line substring>", "message": "<reason>"}]}`,
+     asking for JSON `{"findings": [{"severity": "blocker|major|deterministic-minor|stylistic-nitpick", "file": "<workspace-rel-path | initial-workspace/<rel-path> | decision-record.json | personal-config/operator-preferences.md>", "line": 1, "quote": "<exact single-line substring>", "message": "<reason>"}]}`,
      save its returned JSON to `<cell>/workflow-reviews/round-1-reviewer-a.json`
      with Write, then run:
      `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> workflow-review`
@@ -370,19 +378,20 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `evals/ground-rules/scripts/verify-cell.sh <run-id> <scenario> <state> --assertions`
    (continue to scoring even if `verify-cell.sh` exits `1`).
 2. For `update` cells, skip steps 2 and 3 and run step 4 directly (`score-cell.sh`
-   scores `update` cells—passing or failing—from `verify-cell.sh`). For `fresh`
-   and `foreign` cells, build the blind reviewer inputs with:
+   scores `update` cells—passing or failing—from `verify-cell.sh`). For `fresh`,
+   `foreign`, and `auto` cells, build the blind reviewer inputs with:
    `evals/ground-rules/scripts/prep-blind-review.sh <run-id> <scenario> <state>`
-3. For `fresh` and `foreign` cells, launch **two** independent blind
+3. For `fresh`, `foreign`, and `auto` cells, launch **two** independent blind
    `eval-reviewer` agents in parallel (`review-1.json` and `review-2.json`).
    Give each reviewer only:
    - `<cell>/initial-workspace/`
    - `<cell>/workspace/`
-   - `<cell>/blind-input/`
+   - `<cell>/blind-input/` (noting `runMode: "auto"` and `blind-input/personal-config.md` when `<state>` is `auto`)
    - `plugins/ground-rules/skills/ground-rules/SKILL.md`
    Save each reviewer's returned JSON with Write to `<cell>/review-1.json` and
    `<cell>/review-2.json` using workspace-relative `artifactPath` (or
-   `initial-workspace/<rel-path>` / `blind-input/<filename>`, never absolute or
+   `initial-workspace/<rel-path>` / `blind-input/<filename>` including
+   `blind-input/personal-config.md` in `auto`, never absolute or
    `evals/...` paths) and a single-line verbatim raw `quote` from line `line`:
    ```json
    {
@@ -399,7 +408,7 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      ]
    }
    ```
-4. For every completed cell (`fresh`, `foreign`, and `update`), compute the
+4. For every completed cell (`fresh`, `foreign`, `update`, and `auto`), compute the
    cell's five `0-100` category scores (`workspaceSafety`,
    `userControlAndAuthorization`, `policyAndContradictionFidelity`,
    `repositoryAndArtifactAccuracy`, `maintainabilityAndDocsHygiene`) with:
@@ -420,4 +429,4 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
 5. After all selected cells finish, run:
    - `evals/ground-rules/scripts/snapshot-source.sh after <run-id>`
    - `evals/ground-rules/scripts/snapshot-source.sh compare <run-id>` (continue to `summary` even if `compare` exits `1` so `sourceRepoUnchanged: false` is recorded)
-   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <true|false>` (pass canonical slug such as `claude-sonnet-5-5`; `true` marks any scenario- or state-filtered partial run)
+   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <true|false>` (pass canonical slug such as `claude-sonnet-5-5`; pass `false` for an unfiltered 18-cell baseline run or 24-cell `--with-auto` run, and `true` for any scenario- or state-filtered partial run such as `auto`-only)

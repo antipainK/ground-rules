@@ -15,6 +15,7 @@ TEST_SEED=$(( $$ % 16777213 ))
 TEST_RUN="20000101T000000Z-$(printf '%06x' "$TEST_SEED")"
 TEST_RUN2="20000101T000000Z-$(printf '%06x' "$(( (TEST_SEED + 1) % 16777213 ))")"
 TEST_RUN3="20000101T000000Z-$(printf '%06x' "$(( (TEST_SEED + 2) % 16777213 ))")"
+TEST_RUN4="20000101T000000Z-$(printf '%06x' "$(( (TEST_SEED + 3) % 16777213 ))")"
 GENERATED=""
 TMP_REPO=""
 PASSED=0
@@ -80,7 +81,7 @@ expect_check_fail() {
 }
 
 cleanup() {
-  rm -rf "${RESULTS:?}/$TEST_RUN" "${RESULTS:?}/$TEST_RUN2" "${RESULTS:?}/$TEST_RUN3"
+  rm -rf "${RESULTS:?}/$TEST_RUN" "${RESULTS:?}/$TEST_RUN2" "${RESULTS:?}/$TEST_RUN3" "${RESULTS:?}/$TEST_RUN4"
   if [ -n "$GENERATED" ]; then rm -rf "${RESULTS:?}/$GENERATED"; fi
   if [ -n "$TMP_REPO" ]; then rm -rf "$TMP_REPO"; fi
 }
@@ -1057,7 +1058,7 @@ sys.exit(0 if r["verdict"] == "pass" and r["reviewPath"] == "update-checks-only"
   expect_ok T83-setup "$SCRIPTS/init-run.sh" "$TEST_RUN3"
   for d in "$SCENARIOS"/*/; do
     s=$(basename "$d")
-    for st in fresh foreign; do
+    for st in fresh foreign auto; do
       run "$SCRIPTS/prep-cell.sh" "$TEST_RUN3" "$s" "$st"
       if [ "$RC" -ne 0 ] && echo "$OUT" | grep -Fq 'could not copy'; then
         skip "T83-$s-$st" "blocked by the sandbox: $(echo "$OUT" | head -1 | cut -c1-150)"
@@ -1084,6 +1085,344 @@ sys.exit(0 if r["verdict"] == "pass" and r["reviewPath"] == "update-checks-only"
     run "$SCRIPTS/verify-cell.sh" "$TEST_RUN3" "$s" update
     if [ "$RC" -eq 0 ] && [ "$(grep -Fxc -e "$RULE_S" "$WORKSPACE/.ai/$TOPIC.md")" = "1" ]; then pass "T84-$s"; else fail "T84-$s" "$OUT"; fi
   done
+
+  # T130 to T138 Automatic Mode (auto) behavioural and scoring tests
+  expect_ok T130-init "$SCRIPTS/init-run.sh" "$TEST_RUN4"
+  expect_ok T130-prep-legacy "$SCRIPTS/prep-cell.sh" "$TEST_RUN4" legacy-node-service auto
+  cell_paths "$TEST_RUN4" legacy-node-service auto
+  if [ -f "$CELL/personal-config/operator-preferences.md" ] \
+    && python3 -I -c 'import os,sys; sys.exit(0 if (os.lstat(sys.argv[1]).st_mode & 0o222) == 0 else 1)' "$CELL/personal-config/operator-preferences.md" \
+    && [ -f "$CELL/pre-personal-config-manifest.txt" ] \
+    && [ -f "$WORKSPACE/CLAUDE.md" ] \
+    && [ -f "$CELL/pre-run-copies/CLAUDE.md" ] \
+    && [ -n "$(fgit diff -- src/server.js)" ] \
+    && [ -n "$(fgit diff --cached -- README.md)" ]; then
+    pass T130-auto-prep-legacy
+  else
+    fail T130-auto-prep-legacy "legacy-node-service auto cell missing personal-config, foreign overlay, or planted edits"
+  fi
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" legacy-node-service auto
+  if [ "$RC" -eq 0 ] \
+    && echo "$OUT" | grep -F "prepared personal config unchanged" | grep -Fq PASS \
+    && echo "$OUT" | grep -F "auto asked zero questions" | grep -Fq PASS \
+    && echo "$OUT" | grep -F "auto preserved non-canonical files and configs" | grep -Fq PASS \
+    && echo "$OUT" | grep -F "no personal-config path leaked" | grep -Fq PASS; then
+    pass T130-auto-verify-clean
+  else
+    fail T130-auto-verify-clean "$OUT"
+  fi
+
+  # T131 lock-agents forbids persona in auto state
+  expect_fail T131-lock-persona-forbidden "persona agent is forbidden" \
+    "$SCRIPTS/step-turn.sh" "$TEST_RUN4" legacy-node-service auto lock-agents target-a1 persona-p1
+  expect_ok T131-lock-target-only \
+    "$SCRIPTS/step-turn.sh" "$TEST_RUN4" legacy-node-service auto lock-agents target-a1
+
+  # T132 auto target asking ANY question (even Focused update or >4 options) stops immediately as PRODUCT
+  mkdir -p "$CELL/staging"
+  cat > "$CELL/staging/target-turn.txt" <<'EOF'
+{"status":"needs-answer","questions":[{"id":"q-scope","text":"Which scope should this run use?","options":[{"text":"Focused update","affectedPaths":["AGENTS.md"]},{"text":"Full audit","affectedPaths":["AGENTS.md"]},{"text":"Opt 3","affectedPaths":[]},{"text":"Opt 4","affectedPaths":[]},{"text":"Opt 5","affectedPaths":[]}]}]}
+EOF
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" legacy-node-service auto target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "CELL_STOPPED" \
+    && grep -Fq '"failureKind": "PRODUCT"' "$CELL/staging/next-step.json" \
+    && grep -Fq 'target asked a user question in auto mode' "$CELL/staging/next-step.json"; then
+    pass T132-auto-stops-on-question
+  else
+    fail T132-auto-stops-on-question "rc=$RC out=$OUT next=$(cat "$CELL/staging/next-step.json" 2>/dev/null)"
+  fi
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" legacy-node-service auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "auto asked zero questions" | grep -Fq FAIL; then
+    pass T132-verify-catches-question
+  else
+    fail T132-verify-catches-question "$OUT"
+  fi
+  rm -f "$CELL/transcript.md" "$CELL/staging/last-target-turn.json" "$CELL/staging/next-step.json"
+
+  printf '{"status":"answered","selectedOptions":["Focused update"]}\n' > "$CELL/staging/persona-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" legacy-node-service auto persona
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "CELL_STOPPED" \
+    && grep -Fq 'auto cell cannot accept persona answers' "$CELL/staging/next-step.json"; then
+    pass T132-auto-persona-forbidden
+  else
+    fail T132-auto-persona-forbidden "rc=$RC out=$OUT"
+  fi
+  rm -f "$CELL/staging/next-step.json"
+
+  # T133 tampering with personal-config is caught by step-turn.sh and verify-cell.sh
+  chmod 644 "$CELL/personal-config/operator-preferences.md"
+  cp "$CELL/personal-config/operator-preferences.md" "$CELL/pc.backup"
+  echo "- tampered" >> "$CELL/personal-config/operator-preferences.md"
+  printf '{"status":"complete","finalReport":"## Ground Rules final report\n"}\n' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" legacy-node-service auto target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "CELL_STOPPED" \
+    && grep -Fq 'prepared personal config modified' "$CELL/staging/next-step.json"; then
+    pass T133-step-turn-pc-tamper
+  else
+    fail T133-step-turn-pc-tamper "rc=$RC out=$OUT"
+  fi
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" legacy-node-service auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "prepared personal config unchanged" | grep -Fq FAIL; then
+    pass T133-verify-pc-tamper
+  else
+    fail T133-verify-pc-tamper "$OUT"
+  fi
+  cp "$CELL/pc.backup" "$CELL/personal-config/operator-preferences.md"
+  chmod 444 "$CELL/personal-config/operator-preferences.md"
+  rm -f "$CELL/pc.backup" "$CELL/staging/next-step.json"
+
+  # T134 canonical/additive write boundary & T135 leak detection & T136 autoArtifactAssertions & T137 blind scoring
+  expect_ok T134-prep-empty "$SCRIPTS/prep-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  cell_paths "$TEST_RUN4" empty-python-cli auto
+  expect_ok T134-lock "$SCRIPTS/step-turn.sh" "$TEST_RUN4" empty-python-cli auto lock-agents target-empty-auto
+  mkdir -p "$WORKSPACE/.ai" "$WORKSPACE/docs/todo"
+  cat > "$WORKSPACE/AGENTS.md" <<'EOF'
+# URL Checker
+
+Last reviewed: 2026-11-22
+
+- Check `docs/first-sketch_2026-11-22.md` (possibly outdated snapshot) for stated URL checker intent; language and tooling remain undecided.
+- Read `.ai/testing.md` when adding tests.
+- Open deferred items: `docs/todo/bootstrap_2026-11-22.md`.
+EOF
+  cat > "$WORKSPACE/.ai/testing.md" <<'EOF'
+# Testing Conventions
+
+Last reviewed: 2026-11-22
+
+- Keep automated tests deterministic, independent of run order, and free of live external network requests. Project decision
+EOF
+  cat > "$WORKSPACE/docs/first-sketch_2026-11-22.md" <<'EOF'
+# First Sketch — URL Checker
+
+> **Initial sketch, not a source of truth.** Written on 2026-11-22 before any code existed. Plans change; check `.ai/` and the code for what is actually decided.
+
+- Goal: future command-line URL checker (`README.md`).
+- Open questions: implementation language, CLI flags, output contract, and target users.
+EOF
+  cat > "$WORKSPACE/docs/todo/bootstrap_2026-11-22.md" <<'EOF'
+# Bootstrap Follow-ups
+
+- Decide implementation language and CLI output format before creating source files.
+EOF
+
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -eq 0 ]; then pass T134-allowed-auto-paths; else fail T134-allowed-auto-paths "$OUT"; fi
+
+  # Modifying an existing non-canonical file (README.md) must fail "auto preserved non-canonical files and configs"
+  cp "$WORKSPACE/README.md" "$CELL/readme.bak"
+  echo "# touched" >> "$WORKSPACE/README.md"
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "auto preserved non-canonical files and configs" | grep -Fq FAIL; then
+    pass T134-forbids-config-edit
+  else
+    fail T134-forbids-config-edit "$OUT"
+  fi
+  cp "$CELL/readme.bak" "$WORKSPACE/README.md"
+
+  # Deleting README.md must fail "auto preserved non-canonical files and configs"
+  rm "$WORKSPACE/README.md"
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "auto preserved non-canonical files and configs" | grep -Fq FAIL; then
+    pass T134-forbids-delete
+  else
+    fail T134-forbids-delete "$OUT"
+  fi
+  cp "$CELL/readme.bak" "$WORKSPACE/README.md"
+  rm -f "$CELL/readme.bak"
+
+  # Creating a foreign instruction file or dotfile inside .ai/ must fail "auto preserved non-canonical files and configs"
+  echo "cursor rule" > "$WORKSPACE/.cursorrules"
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "auto preserved non-canonical files and configs" | grep -Fq FAIL; then
+    pass T134-forbids-foreign-create
+  else
+    fail T134-forbids-foreign-create "$OUT"
+  fi
+  rm -f "$WORKSPACE/.cursorrules"
+
+  echo "dotfile" > "$WORKSPACE/.ai/.hidden.md"
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "auto preserved non-canonical files and configs" | grep -Fq FAIL; then
+    pass T134-forbids-dotfile-ai
+  else
+    fail T134-forbids-dotfile-ai "$OUT"
+  fi
+  rm -f "$WORKSPACE/.ai/.hidden.md"
+
+  # T135 leak check catches personal-config paths, (Personal), CLAUDE.local.md, /Users/..., and scenario canary handles
+  cp "$WORKSPACE/.ai/testing.md" "$CELL/testing.bak"
+  echo "- Adopted from @alex-dev (Personal) in CLAUDE.local.md / /Users/someone/rules.md." >> "$WORKSPACE/.ai/testing.md"
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ "$RC" -ne 0 ] && echo "$OUT" | grep -F "no personal-config path leaked" | grep -Fq FAIL; then
+    pass T135-catches-personal-leak
+  else
+    fail T135-catches-personal-leak "$OUT"
+  fi
+  cp "$CELL/testing.bak" "$WORKSPACE/.ai/testing.md"
+  rm -f "$CELL/testing.bak"
+
+  # T136 --assertions uses autoArtifactAssertions in auto state
+  run "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto --assertions
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -F "scenario artifact assertions" | grep -Fq PASS; then
+    pass T136-auto-assertions-pass
+  else
+    fail T136-auto-assertions-pass "$OUT"
+  fi
+
+  # T137 needs-workflow-review -> workflow-review -> complete -> prep-blind-review -> score-cell blind citing blind-input/personal-config.md
+  mkdir -p "$CELL/staging" "$CELL/workflow-reviews"
+  cat > "$CELL/staging/target-turn.txt" <<'EOF'
+{"status":"needs-workflow-review","writtenPaths":["AGENTS.md",".ai/testing.md","docs/first-sketch_2026-11-22.md","docs/todo/bootstrap_2026-11-22.md"],"sanitizedDecisionRecord":[{"topic":"test-isolation","rule":"Deterministic offline tests","origin":"personal config","rationale":"Language-agnostic test isolation preference"}]}
+EOF
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" empty-python-cli auto target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RUN_WORKFLOW_REVIEW"; then
+    pass T137-auto-needs-workflow-review
+  else
+    fail T137-auto-needs-workflow-review "rc=$RC out=$OUT"
+  fi
+  printf '{"verdict":"pass","findings":[]}\n' > "$CELL/workflow-reviews/round-1-reviewer-a.json"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" empty-python-cli auto workflow-review
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RESUME_TARGET_WITH_WORKFLOW_REVIEWS"; then
+    pass T137-auto-workflow-review
+  else
+    fail T137-auto-workflow-review "rc=$RC out=$OUT"
+  fi
+  cat > "$CELL/staging/target-turn.txt" <<'EOF'
+{"status":"complete","finalReport":"## Ground Rules final report\n\n- Applied language-agnostic offline test isolation; skipped Rust cargo-nextest, pytest-httpx, and chat-tone preferences.\n"}
+EOF
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN4" empty-python-cli auto target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "TARGET_COMPLETE"; then
+    pass T137-auto-target-complete
+  else
+    fail T137-auto-target-complete "rc=$RC out=$OUT"
+  fi
+  expect_ok T137-auto-verify-final "$SCRIPTS/verify-cell.sh" "$TEST_RUN4" empty-python-cli auto
+  expect_ok T137-auto-prep-blind "$SCRIPTS/prep-blind-review.sh" "$TEST_RUN4" empty-python-cli auto
+  if [ -f "$CELL/blind-input/personal-config.md" ] \
+    && grep -Fq '"runMode": "auto"' "$CELL/blind-input/rubric.json" \
+    && grep -Fq '"autoAuthorizationRules"' "$CELL/blind-input/rubric.json"; then
+    pass T137-blind-has-personal-config
+  else
+    fail T137-blind-has-personal-config "blind-input missing personal-config.md or runMode auto"
+  fi
+  PC_LINE1=$(head -n 1 "$CELL/blind-input/personal-config.md")
+  python3 -I -c 'import json,sys
+line1 = sys.argv[1]
+r = {
+  "hardFailure": False,
+  "deductions": [
+    {
+      "anchorId": "UNAPPROVED_POLICY_OR_FILE",
+      "category": "userControlAndAuthorization",
+      "artifactPath": "blind-input/personal-config.md",
+      "line": 1,
+      "quote": line1,
+      "explanation": "adopted conflicting personal preference"
+    }
+  ]
+}
+for p in sys.argv[2:]:
+    json.dump(r, open(p, "w", encoding="utf-8"))' "$PC_LINE1" "$CELL/review-1.json" "$CELL/review-2.json"
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN4" empty-python-cli auto blind
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "FAIL" \
+    && python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+assert r["verdict"] == "fail" and r["failureKind"] == "PRODUCT" and r["categoryScores"]["userControlAndAuthorization"] == 40.0' "$CELL/result.json"; then
+    pass T137-blind-cites-personal-config
+  else
+    fail T137-blind-cites-personal-config "rc=$RC out=$OUT"
+  fi
+  rm -f "$CELL/result.json"
+  printf '{"hardFailure":false,"deductions":[]}\n' > "$CELL/review-1.json"
+  printf '{"hardFailure":false,"deductions":[]}\n' > "$CELL/review-2.json"
+  run "$SCRIPTS/score-cell.sh" "$TEST_RUN4" empty-python-cli auto blind
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "PASS" \
+    && python3 -I -c 'import json,sys
+r = json.load(open(sys.argv[1]))
+assert r["verdict"] == "pass" and r["overallMean"] == 100.0' "$CELL/result.json"; then
+    pass T137-blind-clean-pass
+  else
+    fail T137-blind-clean-pass "rc=$RC out=$OUT"
+  fi
+
+  # T138 summary mode handles 18-cell baseline, 6-cell auto-only, and 24-cell --with-auto runs cleanly
+  run python3 -I -c 'import json,os,shutil,subprocess,sys,time
+results_dir, run_id, scripts_dir, rubric_path = sys.argv[1:5]
+rubric = json.load(open(rubric_path, encoding="utf-8"))
+scenarios = rubric["scenarios"]
+run_root = os.path.join(results_dir, run_id)
+for entry in os.listdir(run_root):
+    p = os.path.join(run_root, entry)
+    if os.path.isdir(p) and entry in scenarios:
+        shutil.rmtree(p)
+
+def write_cell(scen, st, score=95.0):
+    cdir = os.path.join(run_root, scen, st)
+    os.makedirs(cdir, exist_ok=True)
+    cats = {k: score for k in rubric["rubric"]["categories"]}
+    cats["workspaceSafety"] = 100.0
+    doc = {
+        "scenario": scen,
+        "state": st,
+        "status": "complete",
+        "verdict": "pass",
+        "hardFailure": False,
+        "deterministicChecksPassed": True,
+        "categoryScores": cats,
+        "overallMean": round(sum(cats.values()) / 5, 2),
+    }
+    json.dump(doc, open(os.path.join(cdir, "result.json"), "w", encoding="utf-8"))
+
+def write_clean_source_snapshot():
+    for k in ("head", "status", "content"):
+        open(os.path.join(run_root, f"source-{k}.txt"), "w", encoding="utf-8").write("snap\n")
+        open(os.path.join(run_root, f"source-{k}-after.txt"), "w", encoding="utf-8").write("snap\n")
+    time.sleep(0.02)
+    json.dump({"identical": True}, open(os.path.join(run_root, "source-compare.json"), "w", encoding="utf-8"))
+
+# Case A: 6-cell auto-only partial run
+for s in scenarios:
+    write_cell(s, "auto", 92.0)
+write_clean_source_snapshot()
+subprocess.run([os.path.join(scripts_dir, "score-cell.sh"), "summary", run_id, "claude-sonnet-5-5", "true"], check=True, stdout=subprocess.DEVNULL)
+sum_a = json.load(open(os.path.join(run_root, "summary.json"), encoding="utf-8"))
+assert sum_a["fullRunPassed"] is False, f"6-cell auto run should have fullRunPassed=False: {sum_a}"
+assert sum_a["autoRunPassed"] is True, f"6-cell auto run should have autoRunPassed=True: {sum_a}"
+assert sum_a["autoCategoryAverages"]["policyAndContradictionFidelity"] == 92.0
+
+# Case B: 18-cell interactive baseline run (remove auto cells, add fresh/foreign/update)
+for s in scenarios:
+    shutil.rmtree(os.path.join(run_root, s, "auto"))
+    for st in ("fresh", "foreign", "update"):
+        write_cell(s, st, 96.0)
+write_clean_source_snapshot()
+subprocess.run([os.path.join(scripts_dir, "score-cell.sh"), "summary", run_id, "claude-sonnet-5-5", "false"], check=True, stdout=subprocess.DEVNULL)
+sum_b = json.load(open(os.path.join(run_root, "summary.json"), encoding="utf-8"))
+assert sum_b["fullRunPassed"] is True, f"18-cell baseline run should have fullRunPassed=True: {sum_b}"
+assert sum_b["autoRunPassed"] is False, f"18-cell baseline run without auto should have autoRunPassed=False: {sum_b}"
+assert all(v is None for v in sum_b["autoCategoryAverages"].values())
+
+# Case C: 24-cell --with-auto run
+for s in scenarios:
+    write_cell(s, "auto", 90.0)
+write_clean_source_snapshot()
+subprocess.run([os.path.join(scripts_dir, "score-cell.sh"), "summary", run_id, "claude-sonnet-5-5", "false"], check=True, stdout=subprocess.DEVNULL)
+sum_c = json.load(open(os.path.join(run_root, "summary.json"), encoding="utf-8"))
+assert sum_c["fullRunPassed"] is True, f"24-cell run should preserve fullRunPassed=True: {sum_c}"
+assert sum_c["autoRunPassed"] is True, f"24-cell run should have autoRunPassed=True: {sum_c}"
+assert sum_c["autoCategoryAverages"]["policyAndContradictionFidelity"] == 90.0
+
+# Case D: incomplete 20-cell --with-auto run (4 auto cells missing) with partial_run=false must NOT set fullRunPassed=True
+for s in scenarios[:4]:
+    shutil.rmtree(os.path.join(run_root, s, "auto"))
+write_clean_source_snapshot()
+subprocess.run([os.path.join(scripts_dir, "score-cell.sh"), "summary", run_id, "claude-sonnet-5-5", "false"], check=True, stdout=subprocess.DEVNULL)
+sum_d = json.load(open(os.path.join(run_root, "summary.json"), encoding="utf-8"))
+assert sum_d["fullRunPassed"] is False, f"incomplete 20-cell run should have fullRunPassed=False: {sum_d}"
+assert sum_d["autoRunPassed"] is False, f"incomplete 20-cell run should have autoRunPassed=False: {sum_d}"
+print("ok")' "$RESULTS" "$TEST_RUN4" "$SCRIPTS" "$EVAL_DIR/rubric.json"
+  if [ "$RC" -eq 0 ]; then pass T138-summary-modes; else fail T138-summary-modes "$OUT"; fi
 }
 
 run_config_group() {
@@ -1184,9 +1523,12 @@ allowed_assert_keys = {"requiredFiles", "requiredFilePatterns", "forbiddenFiles"
 scenarios = sorted(p.parent.name for p in (eval_dir / "scenarios").glob("*/scenario.json"))
 assert len(scenarios) == 6, f"expected 6 scenarios, got {scenarios}"
 assert sorted(rubric.get("scenarios", [])) == scenarios, "rubric.json scenarios list does not match scenarios/ directories"
+assert set(rubric.get("states", [])) == {"fresh", "foreign", "update", "auto"} and len(rubric.get("states", [])) == 4, "unexpected rubric states"
+assert rubric.get("baselineStates") == ["fresh", "foreign", "update"], "unexpected rubric baselineStates"
+assert isinstance(rubric.get("autoAuthorizationRules"), list) and len(rubric["autoAuthorizationRules"]) >= 4, "rubric.json lacks autoAuthorizationRules"
 skill_txt = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 plugin_txt = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
-for leak in ("SERVICE_TOKEN=", "12.03", "Taskfile.yml"):
+for leak in ("SERVICE_TOKEN=", "12.03", "Taskfile.yml", "alex-dev", "operator-preferences.md"):
     assert leak not in plugin_txt, f"fixture token {leak!r} leaked into plugin SKILL.md"
 for s in scenarios:
     assert f"evals/ground-rules/scenarios/{s}/scenario.json" in skill_txt, f"SKILL.md lacks explicit path for {s}"
@@ -1197,6 +1539,14 @@ for s in scenarios:
     assert "approvedPolicy" in sdoc and "artifactAssertions" in sdoc and "decisions" in sdoc
     unknown_ak = set(sdoc["artifactAssertions"].keys()) - allowed_assert_keys
     assert not unknown_ak, f"{s} has unknown artifactAssertions keys: {unknown_ak}"
+    ac = sdoc.get("autoConfig")
+    assert isinstance(ac, dict) and isinstance(ac.get("includeForeignOverlay"), bool), f"{s} lacks valid autoConfig.includeForeignOverlay"
+    assert isinstance(ac.get("personalConfigMarkdown"), str) and ac["personalConfigMarkdown"].strip(), f"{s} lacks autoConfig.personalConfigMarkdown"
+    assert isinstance(ac.get("forbiddenLeakSubstrings"), list) and ac["forbiddenLeakSubstrings"], f"{s} lacks autoConfig.forbiddenLeakSubstrings"
+    aa = sdoc.get("autoArtifactAssertions")
+    assert isinstance(aa, dict) and aa, f"{s} lacks autoArtifactAssertions"
+    unknown_aak = set(aa.keys()) - allowed_assert_keys
+    assert not unknown_aak, f"{s} has unknown autoArtifactAssertions keys: {unknown_aak}"
     assert "updateMaintainerRule" in sdoc and "policySpec" not in sdoc and "rerunMaintainerRule" not in sdoc
     assert (eval_dir / "scenarios" / s / "base").is_dir()
     assert (eval_dir / "scenarios" / s / "foreign-overlay").is_dir()

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: prep-cell.sh <run-id> <scenario> <fresh|foreign|update>
+# Usage: prep-cell.sh <run-id> <scenario> <fresh|foreign|update|auto>
 # Builds one evaluation cell under results/<run-id>/<scenario>/<state>/:
 #   workspace/   the working copy
 #   git-data/    separate Git directory, so workspace/.git is a pointer file
@@ -10,6 +10,9 @@
 #          saved in pre-run-copies/ so any unapproved modification is detected
 # update   the final files of the passed fresh cell in a new repository, plus one maintainer
 #          rule from scenario.json appended to the single .ai file matching the scenario's topic
+# auto     pristine base (plus foreign-overlay when autoConfig.includeForeignOverlay is true,
+#          and planted dirty/staged edits on legacy-node-service) plus hermetic read-only
+#          personal-config/operator-preferences.md from scenario.json
 # A copy failure (for example a fixture file the sandbox blocks) removes the half-built cell.
 
 . "$(dirname "$0")/common.sh"
@@ -26,10 +29,39 @@ BASE="$SCENARIO_DIR/base"
 OVERLAY="$SCENARIO_DIR/foreign-overlay"
 FRESH="$RUN_ROOT/$SCENARIO/fresh"
 TMP="$RUN_ROOT/.prepare-tmp-$SCENARIO-$STATE"
-trap 'rm -rf "$TMP"' EXIT
+CELL_BUILDING=0
+cleanup_prep() {
+  rm -rf "$TMP"
+  if [ "$CELL_BUILDING" -eq 1 ]; then
+    chmod -R u+w "$CELL" 2> /dev/null || true
+    rm -rf "$CELL"
+    rmdir "$RUN_ROOT/$SCENARIO" 2> /dev/null || true
+  fi
+}
+trap cleanup_prep EXIT
 
+AUTO_FOREIGN="false"
 if [ "$STATE" = "foreign" ]; then
   [ -d "$OVERLAY" ] || die "no foreign overlay for $SCENARIO"
+elif [ "$STATE" = "auto" ]; then
+  rm -rf "$TMP"
+  mkdir -p "$TMP"
+  python3 -I -c 'import json,sys
+s = json.load(open(sys.argv[1], encoding="utf-8"))
+ac = s.get("autoConfig")
+if not isinstance(ac, dict) or not isinstance(ac.get("includeForeignOverlay"), bool):
+    sys.exit(2)
+pc = ac.get("personalConfigMarkdown")
+if not isinstance(pc, str) or not pc.strip():
+    sys.exit(3)
+open(sys.argv[2], "w", encoding="utf-8").write("true" if ac["includeForeignOverlay"] else "false")
+open(sys.argv[3], "w", encoding="utf-8").write(pc if pc.endswith("\n") else pc + "\n")' \
+    "$SCENARIO_FILE" "$TMP/auto-foreign.txt" "$TMP/personal-config.md" \
+    || die "no usable autoConfig for $SCENARIO in scenario.json"
+  AUTO_FOREIGN=$(cat "$TMP/auto-foreign.txt")
+  if [ "$AUTO_FOREIGN" = "true" ]; then
+    [ -d "$OVERLAY" ] || die "no foreign overlay for $SCENARIO"
+  fi
 fi
 
 # Appends one line to a file, adding a newline first when the file does not end with one.
@@ -154,6 +186,7 @@ open(sys.argv[3], "w", encoding="utf-8").write(r["text"] + "\n")' "$SCENARIO_FIL
     die "the maintainer rule is already present in $match"
   fi
 
+  CELL_BUILDING=1
   mkdir -p "$WORKSPACE"
   copy_tree "$FRESH/workspace" "$WORKSPACE"
   rm -f "$WORKSPACE/.git"
@@ -202,19 +235,26 @@ else:
 if [ "$STATE" = "update" ]; then
   prepare_update
 else
+  CELL_BUILDING=1
   mkdir -p "$WORKSPACE"
   reject_fixture_unsafe_entries "$BASE"
   copy_tree "$BASE" "$WORKSPACE"
   init_repo_with_baseline
-  if [ "$STATE" = "foreign" ]; then
+  if [ "$STATE" = "foreign" ] || { [ "$STATE" = "auto" ] && [ "$AUTO_FOREIGN" = "true" ]; }; then
     reject_fixture_unsafe_entries "$OVERLAY"
     copy_tree "$OVERLAY" "$WORKSPACE"
     verify_repo_pointer
     mkdir -p "$CELL/pre-run-copies"
     cp -R "$OVERLAY/." "$CELL/pre-run-copies/"
   fi
-  if [ "$SCENARIO" = "legacy-node-service" ] && [ "$STATE" = "fresh" ]; then
+  if [ "$SCENARIO" = "legacy-node-service" ] && { [ "$STATE" = "fresh" ] || [ "$STATE" = "auto" ]; }; then
     plant_legacy_edits
+  fi
+  if [ "$STATE" = "auto" ]; then
+    mkdir -p "$CELL/personal-config"
+    cp "$TMP/personal-config.md" "$CELL/personal-config/operator-preferences.md"
+    chmod 444 "$CELL/personal-config/operator-preferences.md"
+    write_tree_manifest "$CELL/personal-config" "$CELL/pre-personal-config-manifest.txt"
   fi
 fi
 
@@ -243,6 +283,7 @@ write_tree_manifest "$CELL/initial-workspace" "$CELL/pre-initial-workspace-manif
 for f in "$CELL"/pre-* "$CELL/initial-files.txt"; do
   [ -f "$f" ] && chmod 444 "$f"
 done
+CELL_BUILDING=0
 
 echo "prepared $SCENARIO/$STATE in $1"
 echo "head: $(cat "$CELL/pre-head.txt")"
