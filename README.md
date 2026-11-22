@@ -7,10 +7,10 @@ A Claude Code plugin with one interactive skill that sets up, migrates, validate
 - asks about policy and consequential workflow choices, without re-asking settled decisions or facts the repository establishes
 - writes a short `AGENTS.md`, detailed rules in `.ai/`, and—with a chosen docs policy and per-file approval—tidies nonconforming names in `docs/`
 - proposes linter, formatter or compiler config for rules a tool can enforce
-- offers to delete old AI instruction files once their content is moved (you confirm each one)
+- offers to delete old AI instruction files once their accepted rules are migrated or discarded (you confirm each one)
 - offers a dated checklist in `docs/todo/` for code that doesn't follow the new rules yet
 - treats current Markdown as team-owned policy, with no plugin markers, hashes, or hidden ownership state
-- has two fresh agents review the result; deterministic findings are fixed, removed, or explicitly reported as open conflicts before any commit choice
+- has a fresh agent review the result; deterministic findings are fixed, removed, or explicitly reported as open conflicts before any commit choice
 
 You decide every rule. The skill never changes application code.
 
@@ -66,7 +66,7 @@ When `AGENTS.md` or `.ai/*.md` already exists, choose:
 
 When only another instruction format exists, choose **Migrate interactively**, **Audit only**, or **Leave unchanged**.
 
-Additional instruction formats are precedence-checked on every run. During a focused update, equivalent and unique non-conflicting content is reported without another interview; conflicting or stale rules are brought to you. Ignored and untracked local overrides remain outside shared migration unless you explicitly include them.
+Additional instruction formats are precedence-checked on every run. During a focused update, equivalent and unique non-conflicting content is reported without another interview; conflicting or stale rules are brought to you. Machine-local overrides (such as `CLAUDE.local.md`, `*.local.md`, and ignored or untracked personal files) remain outside shared migration unless you explicitly include them.
 
 ## What it writes
 

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Usage: new-run.sh [run-id]
+# Usage: init-run.sh [run-id]
 # Creates evals/ground-rules/results/<run-id>/ and prints the run id.
 # Without an argument the id is an ISO UTC timestamp plus a short random suffix.
 
 . "$(dirname "$0")/common.sh"
 
-[ $# -le 1 ] || die "usage: new-run.sh [run-id]"
+[ $# -le 1 ] || die "usage: init-run.sh [run-id]"
 
 require_results_ignored
 
