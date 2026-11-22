@@ -108,7 +108,7 @@ prepare_update() {
   [ -f "$FRESH/result.json" ] || die "the fresh cell has not passed: no result.json"
   python3 -I -c 'import json,sys
 try:
-    d = json.load(open(sys.argv[1]))
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
 except Exception:
     sys.exit(2)
 sys.exit(0 if d.get("verdict") == "pass" else 1)' "$FRESH/result.json" || die "the fresh cell has not passed: result.json verdict is not pass"
@@ -116,12 +116,12 @@ sys.exit(0 if d.get("verdict") == "pass" else 1)' "$FRESH/result.json" || die "t
   rm -rf "$TMP"
   mkdir -p "$TMP"
   python3 -I -c 'import json,sys
-s = json.load(open(sys.argv[1]))
+s = json.load(open(sys.argv[1], encoding="utf-8"))
 r = s.get("updateMaintainerRule")
 if not r or not r.get("topics") or not r.get("text"):
     sys.exit(3)
-open(sys.argv[2], "w").write("\n".join(t.lower() for t in r["topics"]) + "\n")
-open(sys.argv[3], "w").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.txt" "$TMP/rule.txt" \
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(t.lower() for t in r["topics"]) + "\n")
+open(sys.argv[3], "w", encoding="utf-8").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.txt" "$TMP/rule.txt" \
     || die "no usable updateMaintainerRule for $SCENARIO in scenario.json"
   local rule
   rule=$(cat "$TMP/rule.txt")

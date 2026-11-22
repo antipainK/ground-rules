@@ -97,7 +97,7 @@ The shared `.claude/settings.json` publishes three entries:
   `step-turn.sh`, `verify-cell.sh`, `prep-blind-review.sh`, `score-cell.sh`), not
   a folder wildcard. `test-eval.sh` is deliberately omitted so running the test
   suite still asks.
-- `permissions.ask`: `Edit(...)` and `Write(...)` for `evals/ground-rules/` docs/scripts/rubric/scenarios, `plugins/`, `.claude/`, `.claude-plugin/`, `.mcp.json`, root `README.md`/`LICENSE`/`.gitignore`, and `.git/`.
+- `permissions.ask`: root-anchored `Edit(/...)` rules for `/evals/ground-rules/` docs/scripts/rubric/scenarios, `/plugins/`, `/.claude/`, `/.claude-plugin/`, `/.mcp.json`, `/README.md`, `/LICENSE`, `/.gitignore`, and `/.git/`, so source files ask while nested cell workspaces under `evals/ground-rules/results/` remain editable.
 - `sandbox.filesystem.denyWrite`: `.claude`, `.claude-plugin`, `.mcp.json`, `.git`, `.gitignore`, `README.md`, `LICENSE`, `evals/ground-rules/README.md`, `evals/ground-rules/scripts`, `evals/ground-rules/rubric.json`, `evals/ground-rules/scenarios`, and `plugins`, so Bash cannot rewrite them when the sandbox is on.
 
 Run `evals/ground-rules/scripts/test-eval.sh` after changing a script or the

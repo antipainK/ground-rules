@@ -150,7 +150,7 @@ for base, dirs, files in os.walk(root, topdown=True, followlinks=False):
             kind = "other"
             data = b""
         rows.append((os.fsencode(rel).hex(), kind, stat.S_IFMT(info.st_mode), stat.S_IMODE(info.st_mode), info.st_size, hashlib.sha256(data).hexdigest()))
-with open(out, "w") as f:
+with open(out, "w", encoding="utf-8") as f:
     for row in sorted(rows):
         f.write("%s %s %o %o %d %s\n" % row)' "$1" "$2"
 }
@@ -239,7 +239,7 @@ for base,dirs,files in os.walk(before,topdown=True,followlinks=False):
             continue
         if stat.S_IFMT(a.st_mode) != stat.S_IFMT(b.st_mode) or stat.S_IMODE(a.st_mode) != stat.S_IMODE(b.st_mode):
             changed.append(rel)
-with open(out,"w") as f:
+with open(out, "w", encoding="utf-8") as f:
     for rel in changed:
         f.write(rel+"\n")' "$1" "$2" "$3"
 }

@@ -436,6 +436,18 @@ TURN_REPEAT
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RESUME_TARGET"; then pass T22-open-question-persona; else fail T22-open-question-persona "rc=$RC out=$OUT"; fi
 
+  # Continue without commit does NOT auto-answer on a clean-index cell without dirtyWorkChoice
+  printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Staged changes?","options":[{"text":"Continue without commit (Recommended)"},{"text":"Stop to clean index"}]}]}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "ASK_PERSONA"; then pass T22-staged-not-auto-on-clean-cell; else fail T22-staged-not-auto-on-clean-cell "rc=$RC out=$OUT"; fi
+
+  # Non-ASCII option labels (such as arrow characters) match cleanly under single-byte locales
+  printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Rename doc?","options":[{"text":"Normalize → architecture-final.md"},{"text":"Keep current name"}]}]}' > "$CELL/staging/target-turn.txt"
+  "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target > /dev/null
+  printf '%s\n' '{"status":"answered","answers":[{"questionIndex":1,"selectedOptions":["Normalize → architecture-final.md"],"freeText":null,"authorizedBy":["persona"]}]}' > "$CELL/staging/persona-turn.txt"
+  run env LC_ALL=en_US.ISO8859-1 "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh persona
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RESUME_TARGET"; then pass T22-nonascii-locale; else fail T22-nonascii-locale "rc=$RC out=$OUT"; fi
+
   # T22b step-turn.sh target statuses
   printf '%s\n' '{"status":"protocol-error","reason":"bad state"}' > "$CELL/staging/target-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
@@ -443,6 +455,18 @@ TURN_REPEAT
   printf '%s\n' '{"hello":"world"}' > "$CELL/staging/target-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RETRY_TARGET_FORMAT"; then pass T22-missing-status; else fail T22-missing-status "rc=$RC out=$OUT"; fi
+  printf '%s\n' '{"status":"complete","finalReport":"   "}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "RETRY_TARGET_FORMAT"; then pass T22-empty-final-report; else fail T22-empty-final-report "rc=$RC out=$OUT"; fi
+  printf '* text=auto\n' > "$WORKSPACE/.gitattributes"
+  printf '%s\n' '{"status":"complete","finalReport":"## Ground Rules final report"}' > "$CELL/staging/target-turn.txt"
+  run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
+  rm -f "$WORKSPACE/.gitattributes"
+  if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "CELL_STOPPED" && grep -Fq '"failureKind":"PRODUCT"' "$CELL/staging/next-step.json"; then
+    pass T22-git-safety-stops-cell
+  else
+    fail T22-git-safety-stops-cell "rc=$RC out=$OUT"
+  fi
   printf '%s\n' '{"status":"complete","finalReport":"done"}' > "$CELL/staging/target-turn.txt"
   run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli fresh target
   if [ "$RC" -eq 0 ] && echo "$OUT" | grep -Fxq "TARGET_COMPLETE"; then pass T22-complete; else fail T22-complete "rc=$RC out=$OUT"; fi
@@ -490,7 +514,7 @@ TURN_REPEAT
     cp "$CELL"/pre-* "$UPDATE_STUB/"
     mkdir -p "$UPDATE_STUB/staging"
     "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update lock-agents u-target u-persona > /dev/null
-    printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Choose run","options":[{"text":"Focused update (Recommended)"},{"text":"Full re-audit"}]}]}' > "$UPDATE_STUB/staging/target-turn.txt"
+    printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Choose run","options":[{"text":"Focused update (Recommended)","affectedPaths":["AGENTS.md",".ai/testing.md"]},{"text":"Full re-audit","affectedPaths":["AGENTS.md"]}]}]}' > "$UPDATE_STUB/staging/target-turn.txt"
     run "$SCRIPTS/step-turn.sh" "$TEST_RUN" empty-python-cli update target
     if echo "$OUT" | grep -Fxq "AUTO_ANSWERED_RESUME_TARGET"; then pass T22-update-focused-auto; else fail T22-update-focused-auto "$OUT"; fi
     printf '%s\n' '{"status":"needs-answer","questions":[{"text":"Structure?","options":[{"text":"Focused files (Recommended)"},{"text":"Compact file"}]}]}' > "$UPDATE_STUB/staging/target-turn.txt"
@@ -1103,7 +1127,7 @@ print("; ".join(problems) if problems else "ok")
 sys.exit(1 if problems else 0)' "$SETTINGS"
   if [ "$RC" -eq 0 ]; then pass T28; else fail T28 "$OUT"; fi
 
-  # T28b settings.json permissions.ask and sandbox.filesystem.denyWrite guard protected paths
+  # T28b settings.json permissions.ask (root-anchored Edit(/...) only) and sandbox.filesystem.denyWrite guard protected paths
   run python3 -I -c 'import json,sys
 doc = json.load(open(sys.argv[1], encoding="utf-8"))
 ask = set(doc.get("permissions", {}).get("ask", []))
@@ -1115,20 +1139,17 @@ need_deny = {
     "./evals/ground-rules/scenarios", "./plugins"
 }
 missing_deny = sorted(need_deny - deny)
-need_ask_targets = [
-    "evals/ground-rules/scripts/**", "evals/ground-rules/rubric.json",
-    "evals/ground-rules/README.md", "evals/ground-rules/scenarios/**",
-    "plugins/**", ".gitignore", "README.md", "LICENSE", ".mcp.json",
-    ".git/**", ".claude-plugin/**", ".claude/**"
-]
-missing_ask = []
-for t in need_ask_targets:
-    for verb in ("Edit", "Write"):
-        for pat in (f"{verb}({t})", f"{verb}(/{t})"):
-            if pat not in ask:
-                missing_ask.append(pat)
+need_ask = {
+    "Edit(/evals/ground-rules/scripts/**)", "Edit(/evals/ground-rules/rubric.json)",
+    "Edit(/evals/ground-rules/README.md)", "Edit(/evals/ground-rules/scenarios/**)",
+    "Edit(/plugins/**)", "Edit(/.gitignore)", "Edit(/README.md)", "Edit(/LICENSE)",
+    "Edit(/.mcp.json)", "Edit(/.git/**)", "Edit(/.claude-plugin/**)", "Edit(/.claude/**)"
+}
+missing_ask = sorted(need_ask - ask)
+unanchored_ask = sorted(a for a in ask if not a.startswith("Edit(/"))
 assert not missing_deny, f"missing denyWrite: {missing_deny}"
 assert not missing_ask, f"missing ask: {missing_ask}"
+assert not unanchored_ask, f"unanchored ask rules would intercept nested cell workspaces: {unanchored_ask}"
 print("ok")' "$SETTINGS"
   if [ "$RC" -eq 0 ]; then pass T28-ask-denywrite; else fail T28-ask-denywrite "$OUT"; fi
 

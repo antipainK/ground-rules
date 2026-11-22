@@ -37,8 +37,8 @@ if os.path.isfile(ndjson_path):
             if rec.strip() and rec not in seen:
                 seen.add(rec)
                 entries.append(json.loads(rec))
-with open(json_path, "w") as out:
-    json.dump(entries, out, indent=2)
+with open(json_path, "w", encoding="utf-8") as out:
+    json.dump(entries, out, ensure_ascii=False, indent=2)
     out.write("\n")' "$CELL/maintainer-answers.ndjson" "$CELL/maintainer-answers.json"
 }
 
@@ -71,9 +71,15 @@ with open(out_path, "w", encoding="utf-8") as f:
     ;;
 
   target)
+    rm -f "$CELL/staging/next-step.json"
     INPUT="$CELL/staging/target-turn.txt"
     [ -s "$INPUT" ] || die "no target turn input at $INPUT"
-    verify_git_safety || die "workspace Git safety check failed on target turn"
+    if ! verify_git_safety > /dev/null 2>&1; then
+      printf '{"action":"CELL_STOPPED","failureKind":"PRODUCT","reason":"workspace Git safety check failed on target turn"}\n' > "$CELL/staging/next-step.json"
+      rm -f "$INPUT"
+      echo "CELL_STOPPED"
+      exit 0
+    fi
 
     python3 -I -c 'import json,os,re,sys
 input_path, cell, scenario_file, state = sys.argv[1:5]
@@ -84,11 +90,11 @@ cleaned = fenced.group(1).strip() if fenced else raw
 agent_ids = {}
 agent_ids_path = os.path.join(cell, "agent-ids.json")
 if os.path.isfile(agent_ids_path):
-    agent_ids = json.load(open(agent_ids_path))
+    agent_ids = json.load(open(agent_ids_path, encoding="utf-8"))
 
 def write_next(payload):
-    with open(os.path.join(cell, "staging", "next-step.json"), "w") as f:
-        json.dump(payload, f, indent=2)
+    with open(os.path.join(cell, "staging", "next-step.json"), "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
         f.write("\n")
     print(payload["action"])
 
@@ -180,17 +186,17 @@ elif status == "needs-workflow-review":
             "retryPrompt": "Re-emit your needs-workflow-review JSON with writtenPaths and sanitizedDecisionRecord as JSON arrays."
         })
         raise SystemExit(0)
-    with open(os.path.join(cell, "decision-record.json"), "w") as df:
-        json.dump(obj["sanitizedDecisionRecord"], df, indent=2)
+    with open(os.path.join(cell, "decision-record.json"), "w", encoding="utf-8") as df:
+        json.dump(obj["sanitizedDecisionRecord"], df, ensure_ascii=False, indent=2)
         df.write("\n")
 elif status == "complete":
-    if not isinstance(obj.get("finalReport"), str):
+    if not isinstance(obj.get("finalReport"), str) or not obj["finalReport"].strip():
         write_next({
             "action": "RETRY_TARGET_FORMAT",
             "resumeRole": "target",
             "resumeAgentId": agent_ids.get("target"),
-            "reason": "complete requires finalReport string",
-            "retryPrompt": "Re-emit your complete JSON object with finalReport as a string."
+            "reason": "complete requires non-empty finalReport string",
+            "retryPrompt": "Re-emit your complete JSON object with finalReport as a non-empty string starting with ## Ground Rules final report."
         })
         raise SystemExit(0)
     with open(os.path.join(cell, "final-report.md"), "w", encoding="utf-8") as fr:
@@ -199,14 +205,14 @@ elif status == "complete":
             fr.write("\n")
     dec_path = os.path.join(cell, "decision-record.json")
     if not os.path.isfile(dec_path):
-        with open(dec_path, "w") as df:
+        with open(dec_path, "w", encoding="utf-8") as df:
             df.write("[]\n")
     answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
     if not os.path.isfile(answers_ndjson):
-        open(answers_ndjson, "w").close()
+        open(answers_ndjson, "w", encoding="utf-8").close()
     answers_json = os.path.join(cell, "maintainer-answers.json")
     if not os.path.isfile(answers_json):
-        with open(answers_json, "w") as aj:
+        with open(answers_json, "w", encoding="utf-8") as aj:
             aj.write("[]\n")
 elif status == "protocol-error":
     write_next({
@@ -273,6 +279,9 @@ next_turn_index = existing_turn_max + 1
 def clean_mechanical_option(opt_dict):
     return not opt_dict.get("draftFiles") and not opt_dict.get("affectedPaths")
 
+pre_staged_path = os.path.join(cell, "pre-staged.txt")
+has_pre_staged = os.path.isfile(pre_staged_path) and os.path.getsize(pre_staged_path) > 0
+
 auto_answers = []
 for idx, q in enumerate(obj["questions"], 1):
     opts = [o["text"] for o in q["options"]]
@@ -280,9 +289,14 @@ for idx, q in enumerate(obj["questions"], 1):
     matched = None
     reason = None
     if state == "update":
-        if not already_answered and len(obj["questions"]) == 1 and any(o.startswith("Focused update") for o in opts):
+        if (
+            not already_answered
+            and len(obj["questions"]) == 1
+            and any(o.startswith("Focused update") for o in opts)
+            and any(o.startswith(("Full re-audit", "Validate only")) for o in opts)
+        ):
             cand = next(o for o in opts if o.startswith("Focused update"))
-            if clean_mechanical_option(opt_by_text[cand]):
+            if not opt_by_text[cand].get("draftFiles"):
                 matched = cand
                 reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
     elif state == "foreign" and any(o.startswith(scenario.get("foreignRunChoice", "__none__")) for o in opts):
@@ -292,13 +306,22 @@ for idx, q in enumerate(obj["questions"], 1):
         if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
             reason = cand_reason
-    elif any(o.startswith("Continue without commit") for o in opts) and any("Stop to clean index" in o for o in opts):
+    elif (
+        ps.get("dirtyWorkChoice") == "Continue without commit"
+        and has_pre_staged
+        and any(o.startswith("Continue without commit") for o in opts)
+        and any("Stop to clean index" in o for o in opts)
+    ):
         cand = next(o for o in opts if o.startswith("Continue without commit"))
         cand_reason = "When pre-existing staged work is reported, choose Continue without commit."
         if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
             reason = cand_reason
-    elif any(o.startswith("Don'\''t commit") or o.startswith("Do not commit") for o in opts) and any(o.startswith("Commit") for o in opts):
+    elif (
+        ps.get("lifecycle", {}).get("commit") in ("Don'\''t commit", "Do not commit")
+        and any(o.startswith("Don'\''t commit") or o.startswith("Do not commit") for o in opts)
+        and any(o.startswith("Commit") for o in opts)
+    ):
         cand = next(o for o in opts if o.startswith("Don'\''t commit") or o.startswith("Do not commit"))
         cand_reason = "Decline commit and push."
         if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
@@ -383,6 +406,7 @@ else:
     ;;
 
   persona)
+    rm -f "$CELL/staging/next-step.json"
     INPUT="$CELL/staging/persona-turn.txt"
     [ -s "$INPUT" ] || die "no persona turn input at $INPUT"
     [ -f "$CELL/staging/last-target-turn.json" ] || die "no last-target-turn.json to bind persona answers to"
@@ -396,11 +420,11 @@ cleaned = fenced.group(1).strip() if fenced else raw
 agent_ids = {}
 agent_ids_path = os.path.join(cell, "agent-ids.json")
 if os.path.isfile(agent_ids_path):
-    agent_ids = json.load(open(agent_ids_path))
+    agent_ids = json.load(open(agent_ids_path, encoding="utf-8"))
 
 def write_next(payload):
-    with open(os.path.join(cell, "staging", "next-step.json"), "w") as f:
-        json.dump(payload, f, indent=2)
+    with open(os.path.join(cell, "staging", "next-step.json"), "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
         f.write("\n")
     print(payload["action"])
 
@@ -437,7 +461,7 @@ if p["status"] == "unresolved" or state == "update":
     raise SystemExit(0)
 
 last_turn_path = os.path.join(cell, "staging", "last-target-turn.json")
-target_turn = json.load(open(last_turn_path))
+target_turn = json.load(open(last_turn_path, encoding="utf-8"))
 if target_turn.get("status") != "needs-answer" or target_turn.get("_answered") is True:
     write_next({
         "action": "RETRY_PERSONA_FORMAT",
@@ -556,6 +580,7 @@ write_next({
     ;;
 
   workflow-review)
+    rm -f "$CELL/staging/next-step.json"
     REV_A="$CELL/workflow-reviews/round-1-reviewer-a.json"
     REV_B="$CELL/workflow-reviews/round-1-reviewer-b.json"
     [ -s "$REV_A" ] || die "round-1-reviewer-a.json is required"
@@ -575,7 +600,7 @@ def parse_rev(p):
 agent_ids = {}
 agent_ids_path = os.path.join(cell, "agent-ids.json")
 if os.path.isfile(agent_ids_path):
-    agent_ids = json.load(open(agent_ids_path))
+    agent_ids = json.load(open(agent_ids_path, encoding="utf-8"))
 
 reviews = {"reviewerA": parse_rev(rev_a_path)}
 rev_b = parse_rev(rev_b_path)

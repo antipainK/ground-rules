@@ -100,7 +100,7 @@ summary = {
     "sourceRepoUnchanged": source_repo_unchanged,
     "fullRunPassed": bool(all_pass and not partial_run and is_sonnet and source_repo_unchanged)
 }
-with open(os.path.join(run_root, "summary.json"), "w") as f:
+with open(os.path.join(run_root, "summary.json"), "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=2)
     f.write("\n")
 print("wrote summary.json")' "$RUN_ROOT" "$GR_ROOT" "$RUBRIC_FILE" "$MODEL" "$PARTIAL_RUN"
@@ -135,7 +135,7 @@ out = {
     "categoryScores": None,
     "overallMean": None
 }
-with open(os.path.join(cell, "result.json"), "w") as f:
+with open(os.path.join(cell, "result.json"), "w", encoding="utf-8") as f:
     json.dump(out, f, indent=2)
     f.write("\n")
 print(mode)' "$CELL" "$SCENARIO" "$STATE" "$MODE" "$REASON"
@@ -427,7 +427,7 @@ if needs_tie_breaker and r3 is None:
         "review1Scores": p1,
         "review2Scores": p2
     }
-    with open(os.path.join(cell, "staging", "tie-breaker-needed.json"), "w") as f:
+    with open(os.path.join(cell, "staging", "tie-breaker-needed.json"), "w", encoding="utf-8") as f:
         json.dump(out_status, f, indent=2)
         f.write("\n")
     print("NEEDS_TIE_BREAKER")
@@ -473,7 +473,7 @@ result = {
     "reviewPath": review_path,
     "deductions": all_deductions
 }
-with open(os.path.join(cell, "result.json"), "w") as f:
+with open(os.path.join(cell, "result.json"), "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
     f.write("\n")
 print(result["verdict"].upper())' "$CELL" "$WORKSPACE" "$RUBRIC_FILE" "$SCENARIO" "$STATE"

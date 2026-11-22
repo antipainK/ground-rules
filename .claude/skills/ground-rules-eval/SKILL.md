@@ -205,7 +205,7 @@ Give the target only:
   - Never use compound shell commands (`cd ... && ...`, `;`, `|`).
   - For read-only Git inspection of the workspace, run:
     `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> git-inspect <status|diff|diff-cached|head|toplevel|branch|ls-files>`
-    instead of raw `git` commands.
+    instead of raw `git` commands. Never invoke raw `git` commands (including `git log` or `git remote`); if a subcommand is absent from `git-inspect`, treat remote/multi-commit history as unavailable and use Step 10.3's fallback commit message style.
   - Create and edit files only with the `Write` and `Edit` tools.
   - For approved file renames or deletions inside the workspace (such as normalizing a `docs/` filename or deleting an obsolete foreign file after migration), run:
     `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> apply-fs <rm|mv> <src-rel-path> [dst-rel-path]`
@@ -238,7 +238,16 @@ At Ground Rules Step 9 return:
 {
   "status": "needs-workflow-review",
   "writtenPaths": ["repo-relative path"],
-  "sanitizedDecisionRecord": []
+  "sanitizedDecisionRecord": [
+    {
+      "id": "rule-or-action-id",
+      "file": ".ai/<topic>.md or docs/<path>.md",
+      "scope": "repo or path glob",
+      "wording": "exact authorized rule text or move/rename/delete action",
+      "origin": "explicit answer | existing team policy | Keep/Rewrite verdict | Delete verdict | enforcement pointer | review fix",
+      "source": "Project decision, checking config path, or fetched URL + verbatim supporting sentence"
+    }
+  ]
 }
 ```
 
