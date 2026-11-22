@@ -39,16 +39,16 @@ verify_git_safety || die "Git pointer, configuration or symlink safety check fai
 write_changed_lists "$TMP"
 
 python3 -I -c 'import json,sys
-m = json.load(open(sys.argv[1]))
+m = json.load(open(sys.argv[1], encoding="utf-8"))
 out = {
     "commonDecisions": m.get("commonDecisions", []),
     "rubric": m["rubric"],
     "hardFailures": m["hardFailures"],
 }
-json.dump(out, open(sys.argv[2], "w"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.json"
+json.dump(out, open(sys.argv[2], "w", encoding="utf-8"), indent=1)' "$RUBRIC_FILE" "$NEW/rubric.json"
 
 python3 -I -c 'import json,sys
-compiled = json.load(open(sys.argv[1]))
+compiled = json.load(open(sys.argv[1], encoding="utf-8"))
 if not isinstance(compiled, list):
     raise SystemExit("maintainer-answers.json must be an array")
 raw = []
@@ -105,15 +105,19 @@ for entry in entries:
     if "turnIndex" in entry:
         rec_out["turnIndex"] = entry["turnIndex"]
     out.append(rec_out)
-json.dump(out, open(sys.argv[3], "w"), indent=1)' \
+json.dump(out, open(sys.argv[3], "w", encoding="utf-8"), indent=1)' \
   "$CELL/maintainer-answers.json" "$CELL/maintainer-answers.ndjson" "$NEW/maintainer-answers.json"
 
 python3 -I -c 'import json,sys
-record = json.load(open(sys.argv[1]))
+record = json.load(open(sys.argv[1], encoding="utf-8"))
 if not isinstance(record, list):
     raise SystemExit("decision-record.json must be an array")
-json.dump(record, open(sys.argv[2], "w"), indent=1)' \
+json.dump(record, open(sys.argv[2], "w", encoding="utf-8"), indent=1)' \
   "$CELL/decision-record.json" "$NEW/decision-record.json"
+
+if [ -f "$CELL/final-report.md" ]; then
+  cp "$CELL/final-report.md" "$NEW/final-report.md"
+fi
 
 : > "$NEW/changed-paths.txt"
 sed 's/^/created: /' "$TMP/created.txt" >> "$NEW/changed-paths.txt"

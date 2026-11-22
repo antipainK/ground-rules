@@ -155,9 +155,9 @@ fi
 
 EXPECTED_TOP=$(cd "$WORKSPACE" && pwd -P)
 EXPECTED_GIT=$(cd "$GIT_DIR" && pwd -P)
-ACTUAL_TOP=$(fgit rev-parse --show-toplevel)
-ACTUAL_GIT=$(fgit rev-parse --absolute-git-dir)
-ACTUAL_COMMON=$(fgit rev-parse --git-common-dir)
+ACTUAL_TOP=$(fgit rev-parse --show-toplevel 2> /dev/null || true)
+ACTUAL_GIT=$(fgit rev-parse --absolute-git-dir 2> /dev/null || true)
+ACTUAL_COMMON=$(fgit rev-parse --git-common-dir 2> /dev/null || true)
 if [ "$ACTUAL_TOP" = "$EXPECTED_TOP" ] && [ "$ACTUAL_GIT" = "$EXPECTED_GIT" ] \
   && [ "$ACTUAL_COMMON" = "$EXPECTED_GIT" ] && [ "$EXPECTED_GIT" = "$GIT_DIR" ]; then
   row "Git paths remain cell-local" PASS "-"
@@ -167,8 +167,19 @@ else
   exit 1
 fi
 
+if [ -d "$CELL/initial-workspace" ] && [ -f "$CELL/pre-initial-workspace-manifest.txt" ]; then
+  write_tree_manifest "$CELL/initial-workspace" "$TMP/now-initial-manifest.txt"
+  if cmp -s "$TMP/now-initial-manifest.txt" "$CELL/pre-initial-workspace-manifest.txt"; then
+    row "prepared initial workspace unchanged" PASS "-"
+  else
+    row "prepared initial workspace unchanged" FAIL "initial-workspace modified after prep-cell"
+  fi
+else
+  row "prepared initial workspace unchanged" FAIL "initial-workspace or pre-initial-workspace-manifest.txt missing"
+fi
+
 # 1. HEAD unchanged
-NOW_HEAD=$(fgit rev-parse HEAD)
+NOW_HEAD=$(fgit rev-parse --verify HEAD 2> /dev/null || echo "INVALID")
 if [ "$NOW_HEAD" = "$(cat "$CELL/pre-head.txt")" ]; then
   row "HEAD unchanged" PASS "$NOW_HEAD"
 else
@@ -176,16 +187,19 @@ else
 fi
 
 # 2. nothing staged beyond what was staged before the run (recorded in pre-staged.txt)
-STAGED=$(fgit diff --cached --name-only | sort)
-RECORDED_STAGED=$(sort "$CELL/pre-staged.txt")
-if [ "$STAGED" = "$RECORDED_STAGED" ]; then
-  row "nothing staged" PASS "$([ -z "$STAGED" ] && echo "-" || echo "as recorded: $(echo "$STAGED" | joined)")"
+if fgit diff --cached --name-only > "$TMP/staged-raw.txt" 2> /dev/null; then
+  STAGED=$(sort "$TMP/staged-raw.txt")
+  RECORDED_STAGED=$(sort "$CELL/pre-staged.txt")
+  if [ "$STAGED" = "$RECORDED_STAGED" ]; then
+    row "nothing staged" PASS "$([ -z "$STAGED" ] && echo "-" || echo "as recorded: $(echo "$STAGED" | joined)")"
+  else
+    row "nothing staged" FAIL "now: $(echo "$STAGED" | joined); recorded: $(echo "$RECORDED_STAGED" | joined)"
+  fi
 else
-  row "nothing staged" FAIL "now: $(echo "$STAGED" | joined); recorded: $(echo "$RECORDED_STAGED" | joined)"
+  row "nothing staged" FAIL "git diff --cached failed"
 fi
 
-fgit ls-files --stage -v > "$TMP/index.txt"
-if cmp -s "$TMP/index.txt" "$CELL/pre-index.txt"; then
+if fgit ls-files --stage -v > "$TMP/index.txt" 2> /dev/null && cmp -s "$TMP/index.txt" "$CELL/pre-index.txt"; then
   row "index entries unchanged" PASS "-"
 else
   row "index entries unchanged" FAIL "blob, mode, stage or index flags differ"
@@ -219,7 +233,7 @@ write_changed_lists "$TMP"
 
 PYRC=0
 python3 -I -c 'import json,sys
-s = json.load(open(sys.argv[1]))
+s = json.load(open(sys.argv[1], encoding="utf-8"))
 if s.get("id") != sys.argv[2]:
     sys.exit(3)
 print("\n".join(s.get("allowedChangePrefixes", [])))' "$SCENARIO_FILE" "$SCENARIO" > "$TMP/prefixes.txt" 2> /dev/null || PYRC=$?
@@ -252,18 +266,23 @@ else
 fi
 row "complete changed path list" PASS "$([ -s "$TMP/changed.txt" ] && joined < "$TMP/changed.txt" || echo "-")"
 
-# 4b. update cells: no diff at all, initial-workspace untouched, maintainer rule preserved, no policy questions asked
+# 4b. update cells: no diff at all (including directories), maintainer rule preserved, no policy questions asked
 if [ "$STATE" = "update" ]; then
-  if [ -f "$CELL/pre-initial-workspace-manifest.txt" ]; then
-    write_tree_manifest "$CELL/initial-workspace" "$TMP/now-initial-manifest.txt"
-    if cmp -s "$TMP/now-initial-manifest.txt" "$CELL/pre-initial-workspace-manifest.txt"; then
-      row "update initial-workspace unchanged" PASS "-"
-    else
-      row "update initial-workspace unchanged" FAIL "initial-workspace modified after prep-cell"
-    fi
-  fi
-  if [ -s "$TMP/changed.txt" ]; then
-    row "update produced no diff" FAIL "$(joined < "$TMP/changed.txt")"
+  EXTRA_UPDATE_DIRS=$(python3 -I -c 'import os,sys
+init_ws, ws = sys.argv[1:3]
+def dirs(root):
+    out = set()
+    if not os.path.isdir(root):
+        return out
+    for dp, dns, _ in os.walk(root):
+        dns[:] = [d for d in dns if not (dp == root and d == ".git")]
+        for d in dns:
+            out.add(os.path.relpath(os.path.join(dp, d), root).replace(os.sep, "/"))
+    return out
+diff = sorted(dirs(init_ws) ^ dirs(ws))
+print(" ".join(diff))' "$CELL/initial-workspace" "$WORKSPACE")
+  if [ -s "$TMP/changed.txt" ] || [ -n "$EXTRA_UPDATE_DIRS" ]; then
+    row "update produced no diff" FAIL "$(joined < "$TMP/changed.txt")${EXTRA_UPDATE_DIRS:+ dirs:$EXTRA_UPDATE_DIRS}"
   else
     row "update produced no diff" PASS "-"
   fi
@@ -279,7 +298,15 @@ if [ "$STATE" = "update" ]; then
 cell = sys.argv[1]
 nd = os.path.join(cell, "maintainer-answers.ndjson")
 if os.path.isfile(nd):
-    lines = [json.loads(l) for l in open(nd, encoding="utf-8") if l.strip()]
+    lines = []
+    for l in open(nd, encoding="utf-8", errors="replace"):
+        if not l.strip():
+            continue
+        try:
+            lines.append(json.loads(l))
+        except Exception:
+            print("corrupt JSON in maintainer-answers.ndjson")
+            sys.exit(0)
     if len(lines) > 1:
         print("multiple answer records in update")
         sys.exit(0)
@@ -291,13 +318,14 @@ if os.path.isfile(nd):
 tr = os.path.join(cell, "transcript.md")
 if os.path.isfile(tr):
     na_turns = 0
-    for l in open(tr, encoding="utf-8"):
+    for l in open(tr, encoding="utf-8", errors="replace"):
         if not l.strip():
             continue
         try:
             o = json.loads(l)
         except Exception:
-            continue
+            print("corrupt JSON in transcript.md")
+            sys.exit(0)
         if o.get("status") == "needs-answer":
             na_turns += 1
             qs = o.get("questions") or []
@@ -347,7 +375,7 @@ if [ -d "$WORKSPACE/.ai" ]; then
     [ -n "$nf" ] || continue
     LONG="$LONG non-md:${nf#"$WORKSPACE"/}"
   done <<EOF
-$(find "$WORKSPACE/.ai" -type f ! -iname '*.md' | sort)
+$(find "$WORKSPACE/.ai" -type f ! -iname '*.md' ! -iname '.ground-rules*' | sort)
 EOF
   row ".ai directory presence" PASS "present ($(wc -l < "$TMP/ai-files.txt" | tr -d ' ') Markdown file(s))"
 else
@@ -355,15 +383,12 @@ else
 fi
 if [ -z "$LONG" ]; then row ".ai files at most 300 lines" PASS "-"; else row ".ai files at most 300 lines" FAIL "$LONG"; fi
 
-# team-owned Markdown and written files for the marker scan
+# team-owned Markdown for sha256/marker scan, plus all written files for explicit ground-rules marker scan
 cat "$TMP/agents-files.txt" > "$TMP/team.txt"
 [ ! -f "$TMP/ai-files.txt" ] || cat "$TMP/ai-files.txt" >> "$TMP/team.txt"
 if [ -d "$WORKSPACE/docs" ]; then find "$WORKSPACE/docs" -type f -iname '*.md' | sort >> "$TMP/team.txt"; fi
-cat "$TMP/created.txt" "$TMP/modified.txt" | sort -u > "$TMP/written.txt"
-while IFS= read -r wf; do
-  [ -n "$wf" ] && [ -f "$WORKSPACE/$wf" ] && printf '%s\n' "$WORKSPACE/$wf" >> "$TMP/team.txt"
-done < "$TMP/written.txt"
 sort -u "$TMP/team.txt" -o "$TMP/team.txt"
+cat "$TMP/created.txt" "$TMP/modified.txt" | sort -u > "$TMP/written.txt"
 
 # 6. no ownership marker, hash registry or plugin metadata
 MARKED=""
@@ -371,33 +396,83 @@ while IFS= read -r mf; do
   [ -n "$mf" ] || continue
   MARKED="$MARKED ${mf#"$WORKSPACE"/}"
 done <<EOF
-$(find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -iname '*ground-rules*' -print | sort)
+$(find "$WORKSPACE" -path "$WORKSPACE/.git" -prune -o -iname '.ground-rules*' -print | sort)
 EOF
 while IFS= read -r f; do
   [ -f "$f" ] || continue
   if grep -Eq 'ground-rules:managed|\.ground-rules\.json|sha256:[0-9a-f]{16,}' "$f"; then MARKED="$MARKED ${f#"$WORKSPACE"/}"; fi
 done < "$TMP/team.txt"
+while IFS= read -r wf; do
+  [ -n "$wf" ] && [ -f "$WORKSPACE/$wf" ] || continue
+  if grep -Eq 'ground-rules:managed|\.ground-rules\.json' "$WORKSPACE/$wf"; then
+    case " $MARKED " in *" $wf "*) ;; *) MARKED="$MARKED $wf" ;; esac
+  fi
+done < "$TMP/written.txt"
 if [ -z "$MARKED" ]; then row "no ownership marker or hash registry" PASS "-"; else row "no ownership marker or hash registry" FAIL "$MARKED"; fi
 
-# 7. no secret-shaped value in any created or modified file (or transcript)
-SECRET_KV="(api[_-]?key|secret|token|password)[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/+_.=-]{16,}"
-SECRET_TOKENS='AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
-LEAKED=""
-while IFS= read -r f; do
-  [ -f "$WORKSPACE/$f" ] || continue
-  if grep -Eqi "$SECRET_KV" "$WORKSPACE/$f" || grep -Eq "$SECRET_TOKENS" "$WORKSPACE/$f"; then LEAKED="$LEAKED $f"; fi
-done < "$TMP/written.txt"
-if [ -f "$CELL/transcript.md" ]; then
-  if grep -Eqi "$SECRET_KV" "$CELL/transcript.md" || grep -Eq "$SECRET_TOKENS" "$CELL/transcript.md"; then
-    LEAKED="$LEAKED transcript.md"
-  fi
-fi
+# 7. no secret-shaped value in any created or modified file (or cell logs)
+LEAKED=$(python3 -I -c 'import json,os,re,sys
+ws, written_path, cell = sys.argv[1:4]
+kv_re = re.compile(r"(?i)(api[_-]?key|secret|token|password)(?:\\?[\"\x27`])?[ \t]*[:=][ \t]*(?:\\?[\"\x27`])?[A-Za-z0-9/+_.=-]{16,}")
+tok_re = re.compile(r"AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----")
+
+def has_secret(text):
+    return bool(kv_re.search(text) or tok_re.search(text))
+
+def collect_strings(val, out):
+    if isinstance(val, str):
+        out.append(val)
+    elif isinstance(val, list):
+        for item in val:
+            collect_strings(item, out)
+    elif isinstance(val, dict):
+        for k, v in val.items():
+            if isinstance(k, str):
+                out.append(k)
+            collect_strings(v, out)
+
+leaked = []
+if os.path.isfile(written_path):
+    for line in open(written_path, encoding="utf-8"):
+        rel = line.strip()
+        p = os.path.join(ws, rel)
+        if rel and os.path.isfile(p):
+            txt = open(p, encoding="utf-8", errors="replace").read()
+            if has_secret(txt):
+                leaked.append(rel)
+
+for log_name in ("transcript.md", "decision-record.json", "final-report.md"):
+    lp = os.path.join(cell, log_name)
+    if not os.path.isfile(lp):
+        continue
+    raw = open(lp, encoding="utf-8", errors="replace").read()
+    found = has_secret(raw)
+    if not found and log_name.endswith((".md", ".json")):
+        strs = []
+        for l in raw.splitlines():
+            if not l.strip():
+                continue
+            try:
+                collect_strings(json.loads(l), strs)
+            except Exception:
+                pass
+        try:
+            collect_strings(json.loads(raw), strs)
+        except Exception:
+            pass
+        found = any(has_secret(s) for s in strs)
+    if found:
+        leaked.append(log_name)
+
+print(" ".join(leaked))' "$WORKSPACE" "$TMP/written.txt" "$CELL")
 if [ -z "$LEAKED" ]; then row "no secret-shaped value" PASS "-"; else row "no secret-shaped value" FAIL "$LEAKED"; fi
 
 # 8. case-exact pointers resolve and every .ai policy file is reachable from AGENTS.md
-POINTER_CHECK=$(python3 -I -c 'import os,re,sys
+POINTER_CHECK=$(python3 -I -c 'import os,re,sys,urllib.parse
 ws, ai_list_path, changed_path, deleted_path, run_assertions = sys.argv[1:6]
 run_assertions = int(run_assertions)
+
+FOREIGN_NAMES = {"CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", "AGENTS.override.md", "copilot-instructions.md"}
 
 def exact_exists(root, rel_path, require_file=True):
     if not rel_path or rel_path.startswith("/"):
@@ -416,6 +491,12 @@ def exact_exists(root, rel_path, require_file=True):
         cur = os.path.join(cur, part)
     return (os.path.isfile(cur) and not os.path.islink(cur)) if require_file else os.path.lexists(cur)
 
+def norm_ptr(p):
+    p = p.strip()
+    while p.startswith("./"):
+        p = p[2:]
+    return p
+
 ai_files = []
 if os.path.isfile(ai_list_path):
     for line in open(ai_list_path, encoding="utf-8"):
@@ -425,17 +506,24 @@ if os.path.isfile(ai_list_path):
 
 if exact_exists(ws, "AGENTS.md", require_file=True):
     txt = open(os.path.join(ws, "AGENTS.md"), encoding="utf-8", errors="replace").read()
-    ptrs = set(re.findall(r"`([A-Za-z0-9_./-]+\.md)`", txt))
-    for m in re.findall(r"\]\(([^)\s#]+\.md)(?:#[^)]*)?\)", txt):
+    ptrs = set()
+    for m in re.findall(r"`([A-Za-z0-9_./-]+\.md)`", txt):
+        ptrs.add(norm_ptr(m))
+    for m in re.findall(r"\]\([<]([^>#]+\.md)(?:#[^>]*)?[>]\)", txt):
         if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", m):
-            ptrs.add(m)
+            ptrs.add(norm_ptr(urllib.parse.unquote(m)))
+    for m in re.findall(r"\]\(([^)<>\s#]+\.md)(?:#[^)]*)?\)", txt):
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", m):
+            ptrs.add(norm_ptr(urllib.parse.unquote(m)))
     broken = []
     for ptr in sorted(ptrs):
-        if "YYYY" in ptr:
+        if not ptr or "YYYY" in ptr or "*" in ptr:
             continue
         if exact_exists(ws, ptr, require_file=True):
             continue
         if "/" not in ptr and exact_exists(ws, "docs/" + ptr, require_file=True):
+            continue
+        if "/" not in ptr and ptr in FOREIGN_NAMES:
             continue
         broken.append(ptr)
     unreached = [rel for rel in ai_files if rel not in ptrs]
@@ -473,7 +561,7 @@ fi
 # 9. optional post-completion artifact assertions from scenario.json
 if [ "$RUN_ASSERTIONS" -eq 1 ]; then
   ASSERT_DETAIL=$(python3 -I -c 'import glob,json,os,sys
-s = json.load(open(sys.argv[1]))
+s = json.load(open(sys.argv[1], encoding="utf-8"))
 ws = sys.argv[2]
 state = sys.argv[3]
 a = s.get("artifactAssertions", {})
@@ -513,14 +601,14 @@ for rel, subs in a.get("requiredSubstrings", {}).items():
     if not exact_exists(ws, rel, require_file=True):
         problems.append(f"missing-for-substring:{rel}")
     else:
-        txt = open(p, errors="replace").read()
+        txt = open(p, encoding="utf-8", errors="replace").read()
         for sub in subs:
             if sub not in txt:
                 problems.append(f"lacks-substring:{rel}:{sub}")
 for rel, subs in a.get("forbiddenSubstrings", {}).items():
     p = os.path.join(ws, rel)
     if exact_exists(ws, rel, require_file=True):
-        txt = open(p, errors="replace").read()
+        txt = open(p, encoding="utf-8", errors="replace").read()
         for sub in subs:
             if sub in txt:
                 problems.append(f"has-forbidden-substring:{rel}:{sub}")

@@ -65,8 +65,8 @@ cell_paths() {
 # overridden on the command line (partial mitigation: other config-driven commands
 # such as filter drivers are checked by verify_git_safety before fgit runs).
 fgit() {
-  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null \
-    --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" "$@"
+  GIT_CEILING_DIRECTORIES="$RUN_ROOT" git --git-dir="$GIT_DIR" --work-tree="$WORKSPACE" \
+    --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
 }
 
 # Verifies that the workspace has no symlinks, irregular files, control-char names, or nested .git

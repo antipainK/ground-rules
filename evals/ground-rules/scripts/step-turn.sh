@@ -44,15 +44,27 @@ with open(json_path, "w") as out:
 
 case "$MODE" in
   lock-agents)
-    [ $# -eq 6 ] || die "usage: step-turn.sh <run-id> <scenario> <state> lock-agents <target-id> <persona-id>"
+    [ $# -eq 5 ] || [ $# -eq 6 ] || die "usage: step-turn.sh <run-id> <scenario> <state> lock-agents <target-id> [persona-id]"
     TARGET_ID="$5"
-    PERSONA_ID="$6"
-    [ -n "$TARGET_ID" ] && [ -n "$PERSONA_ID" ] || die "agent ids must be non-empty"
-    [ "$TARGET_ID" != "$PERSONA_ID" ] || die "target and persona agent ids must be distinct"
-    [ ! -e "$CELL/agent-ids.json" ] || die "agent-ids.json already exists in $CELL"
+    PERSONA_ID="${6:-}"
+    [ -n "$TARGET_ID" ] || die "target agent id must be non-empty"
+    if [ -n "$PERSONA_ID" ]; then
+      [ "$TARGET_ID" != "$PERSONA_ID" ] || die "target and persona agent ids must be distinct"
+    fi
+    if [ -e "$CELL/agent-ids.json" ]; then
+      # Allow binding persona lazily once when agent-ids.json was initially locked with persona: null
+      if [ -n "$PERSONA_ID" ] && python3 -I -c 'import json,sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+sys.exit(0 if d.get("target") == sys.argv[2] and d.get("persona") is None else 1)' "$CELL/agent-ids.json" "$TARGET_ID"; then
+        chmod u+w "$CELL/agent-ids.json"
+      else
+        die "agent-ids.json already exists in $CELL"
+      fi
+    fi
     python3 -I -c 'import json,sys
-with open(sys.argv[3], "w") as f:
-    json.dump({"target": sys.argv[1], "persona": sys.argv[2]}, f, indent=2)
+target_id, persona_id, out_path = sys.argv[1:4]
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump({"target": target_id, "persona": persona_id if persona_id else None}, f, indent=2)
     f.write("\n")' "$TARGET_ID" "$PERSONA_ID" "$CELL/agent-ids.json"
     chmod 444 "$CELL/agent-ids.json"
     echo "locked agent-ids.json"
@@ -115,13 +127,22 @@ if status == "needs-answer":
         })
         raise SystemExit(0)
     for idx, q in enumerate(qs, 1):
-        if not isinstance(q, dict) or not isinstance(q.get("text"), str) or not q["text"].strip() or not isinstance(q.get("options"), list) or not q.get("options"):
+        if not isinstance(q, dict) or not isinstance(q.get("text"), str) or not q["text"].strip() or not isinstance(q.get("options"), list):
             write_next({
                 "action": "RETRY_TARGET_FORMAT",
                 "resumeRole": "target",
                 "resumeAgentId": agent_ids.get("target"),
                 "reason": f"question {idx} lacks valid text or options array",
-                "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every question object includes non-empty text and options."
+                "retryPrompt": "Return the previous still-unanswered user decision again, unchanged, ensuring every question object includes non-empty text and an options array (empty [] only for genuinely open plain-text questions)."
+            })
+            raise SystemExit(0)
+        if len(q["options"]) == 1:
+            write_next({
+                "action": "RETRY_TARGET_FORMAT",
+                "resumeRole": "target",
+                "resumeAgentId": agent_ids.get("target"),
+                "reason": f"question {idx} has a single option; structured questions require >=2 options or [] for open text",
+                "retryPrompt": "Return the previous still-unanswered user decision again, using either >=2 distinct options or options: [] for an open plain-text question."
             })
             raise SystemExit(0)
         seen_opts = set()
@@ -172,6 +193,10 @@ elif status == "complete":
             "retryPrompt": "Re-emit your complete JSON object with finalReport as a string."
         })
         raise SystemExit(0)
+    with open(os.path.join(cell, "final-report.md"), "w", encoding="utf-8") as fr:
+        fr.write(obj["finalReport"])
+        if obj["finalReport"] and not obj["finalReport"].endswith("\n"):
+            fr.write("\n")
     dec_path = os.path.join(cell, "decision-record.json")
     if not os.path.isfile(dec_path):
         with open(dec_path, "w") as df:
@@ -225,11 +250,12 @@ if status == "complete":
 # Check if all questions in this needs-answer turn are purely mechanical lifecycle prompts.
 # In update, ONLY the initial Focused update run-choice prompt may be auto-answered; any
 # subsequent or policy/lifecycle prompt immediately stops the cell as a PRODUCT failure.
-scenario = json.load(open(scenario_file))
+scenario = json.load(open(scenario_file, encoding="utf-8"))
 ps = scenario.get("approvedPolicy", {})
 answers_ndjson = os.path.join(cell, "maintainer-answers.ndjson")
 existing_turn_max = 0
 already_answered = False
+already_reasons = set()
 if os.path.isfile(answers_ndjson):
     with open(answers_ndjson, "r", encoding="utf-8") as ef:
         for line_idx, line in enumerate(ef, 1):
@@ -238,9 +264,14 @@ if os.path.isfile(answers_ndjson):
                 try:
                     rec_obj = json.loads(line)
                     existing_turn_max = max(existing_turn_max, int(rec_obj.get("turnIndex", line_idx)))
+                    for auth in rec_obj.get("authorizedBy") or []:
+                        already_reasons.add(auth)
                 except Exception:
                     existing_turn_max = max(existing_turn_max, line_idx)
 next_turn_index = existing_turn_max + 1
+
+def clean_mechanical_option(opt_dict):
+    return not opt_dict.get("draftFiles") and not opt_dict.get("affectedPaths")
 
 auto_answers = []
 for idx, q in enumerate(obj["questions"], 1):
@@ -251,41 +282,42 @@ for idx, q in enumerate(obj["questions"], 1):
     if state == "update":
         if not already_answered and len(obj["questions"]) == 1 and any(o.startswith("Focused update") for o in opts):
             cand = next(o for o in opts if o.startswith("Focused update"))
-            if not opt_by_text[cand].get("draftFiles"):
+            if clean_mechanical_option(opt_by_text[cand]):
                 matched = cand
                 reason = "In the update state, choose the presented run-choice option whose label starts with Focused update."
     elif state == "foreign" and any(o.startswith(scenario.get("foreignRunChoice", "__none__")) for o in opts):
         frc = scenario["foreignRunChoice"]
         cand = next(o for o in opts if o.startswith(frc))
-        if not opt_by_text[cand].get("draftFiles"):
+        cand_reason = f"Foreign run choice: {frc}"
+        if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
-            reason = f"Foreign run choice: {frc}"
+            reason = cand_reason
     elif any(o.startswith("Continue without commit") for o in opts) and any("Stop to clean index" in o for o in opts):
         cand = next(o for o in opts if o.startswith("Continue without commit"))
-        if not opt_by_text[cand].get("draftFiles"):
+        cand_reason = "When pre-existing staged work is reported, choose Continue without commit."
+        if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
-            reason = "When pre-existing staged work is reported, choose Continue without commit."
+            reason = cand_reason
     elif any(o.startswith("Don'\''t commit") or o.startswith("Do not commit") for o in opts) and any(o.startswith("Commit") for o in opts):
         cand = next(o for o in opts if o.startswith("Don'\''t commit") or o.startswith("Do not commit"))
-        if not opt_by_text[cand].get("draftFiles"):
+        cand_reason = "Decline commit and push."
+        if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
-            reason = "Decline commit and push."
-    elif ps.get("docsGovernance") == "Snapshot + living docs" and any(o.startswith("Snapshot + living docs") for o in opts) and any("Pointers only" in o for o in opts):
-        cand = next(o for o in opts if o.startswith("Snapshot + living docs"))
-        if not opt_by_text[cand].get("draftFiles"):
-            matched = cand
-            reason = "Choose the Snapshot + living docs governance policy."
+            reason = cand_reason
     elif ps.get("structure") == "Focused files" and any(o.startswith("Focused files") for o in opts) and any(o.startswith("Compact file") for o in opts):
         cand = next(o for o in opts if o.startswith("Focused files"))
-        if not opt_by_text[cand].get("draftFiles"):
+        cand_reason = "Choose Focused files."
+        if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
-            reason = "Choose Focused files."
+            reason = cand_reason
     elif ps.get("toolingChoice") == "Document rules only" and any(o.startswith("Document rules only") for o in opts) and any("Bootstrap tooling" in o for o in opts):
         cand = next(o for o in opts if o.startswith("Document rules only"))
-        if not opt_by_text[cand].get("draftFiles"):
+        cand_reason = "Document rules only; do not create a manifest or commands."
+        if clean_mechanical_option(opt_by_text[cand]) and cand_reason not in already_reasons:
             matched = cand
-            reason = "Document rules only; do not create a manifest or commands."
+            reason = cand_reason
     if matched is not None:
+        already_reasons.add(reason)
         auto_answers.append({
             "turnIndex": next_turn_index,
             "questionIndex": idx,
@@ -299,6 +331,12 @@ if len(auto_answers) == len(obj["questions"]):
     with open(answers_ndjson, "a", encoding="utf-8") as af:
         for entry in auto_answers:
             af.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    answered_record = dict(obj)
+    answered_record["_turnSeq"] = next_turn_index
+    answered_record["_answered"] = True
+    with open(os.path.join(cell, "staging", "last-target-turn.json"), "w", encoding="utf-8") as ltf:
+        json.dump(answered_record, ltf, ensure_ascii=False, indent=2)
+        ltf.write("\n")
     relay = [
         {
             "questionIndex": a["questionIndex"],
@@ -314,6 +352,11 @@ if len(auto_answers) == len(obj["questions"]):
         "relayAnswers": relay
     })
 elif state == "update":
+    stopped_record = dict(obj)
+    stopped_record["_answered"] = True
+    with open(os.path.join(cell, "staging", "last-target-turn.json"), "w", encoding="utf-8") as ltf:
+        json.dump(stopped_record, ltf, ensure_ascii=False, indent=2)
+        ltf.write("\n")
     write_next({
         "action": "CELL_STOPPED",
         "failureKind": "PRODUCT",
@@ -496,11 +539,10 @@ with open(answers_ndjson, "a", encoding="utf-8") as af:
     for r in records:
         af.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-if "_turnSeq" in target_turn:
-    target_turn["_answered"] = True
-    with open(last_turn_path, "w", encoding="utf-8") as ltf:
-        json.dump(target_turn, ltf, ensure_ascii=False, indent=2)
-        ltf.write("\n")
+target_turn["_answered"] = True
+with open(last_turn_path, "w", encoding="utf-8") as ltf:
+    json.dump(target_turn, ltf, ensure_ascii=False, indent=2)
+    ltf.write("\n")
 
 write_next({
     "action": "RESUME_TARGET",
@@ -558,9 +600,9 @@ print(payload["action"])' "$CELL" "$REV_A" "$REV_B"
     OP="$5"
     SRC_REL="$6"
     DST_REL="${7:-}"
-    python3 -I -c 'import json,os,shutil,sys
+    python3 -I -c 'import json,os,shutil,sys,tempfile
 ws, scenario_file, op, src_rel, dst_rel = sys.argv[1:6]
-s = json.load(open(scenario_file))
+s = json.load(open(scenario_file, encoding="utf-8"))
 prefixes = s.get("allowedChangePrefixes", [])
 
 def allowed(rel):
@@ -583,16 +625,30 @@ def allowed(rel):
             return True
     return False
 
+def exact_exists(root, rel_path, require_file=True):
+    cur = root
+    for part in rel_path.split("/"):
+        try:
+            entries = os.listdir(cur)
+        except OSError:
+            return False
+        if part not in entries:
+            return False
+        cur = os.path.join(cur, part)
+    return (os.path.isfile(cur) and not os.path.islink(cur)) if require_file else (os.path.isdir(cur) and not os.path.islink(cur))
+
 if not allowed(src_rel):
     raise SystemExit(f"error: source path not in allowedChangePrefixes: {src_rel}")
 ws_real = os.path.realpath(ws)
-src_joined = os.path.join(ws, src_rel)
+src_joined = os.path.join(ws_real, src_rel)
 if os.path.islink(src_joined):
     raise SystemExit(f"error: refusing symlink source: {src_rel}")
+if not exact_exists(ws_real, src_rel, require_file=True):
+    raise SystemExit(f"error: source file does not exist inside allowedChangePrefixes: {src_rel}")
 src_full = os.path.realpath(src_joined)
 src_norm = os.path.relpath(src_full, ws_real).replace(os.sep, "/")
-if not src_full.startswith(ws_real + os.sep) or not os.path.isfile(src_full) or not allowed(src_norm):
-    raise SystemExit(f"error: source file does not exist inside allowedChangePrefixes: {src_rel}")
+if not src_full.startswith(ws_real + os.sep) or not allowed(src_norm):
+    raise SystemExit(f"error: source file escapes allowedChangePrefixes: {src_rel}")
 
 if op == "rm":
     if dst_rel:
@@ -602,23 +658,34 @@ if op == "rm":
 elif op == "mv":
     if not allowed(dst_rel):
         raise SystemExit(f"error: destination path not in allowedChangePrefixes: {dst_rel}")
-    dst_joined = os.path.join(ws, dst_rel)
+    dst_joined = os.path.join(ws_real, dst_rel)
     if os.path.islink(dst_joined):
         raise SystemExit(f"error: refusing symlink destination: {dst_rel}")
+    if src_rel == dst_rel:
+        raise SystemExit(f"error: source and destination are identical: {dst_rel}")
+    # Verify existing ancestor directories match requested casing before creating missing child dirs
+    cur_anc = ws_real
+    for part in os.path.dirname(dst_rel).split("/"):
+        if not part:
+            continue
+        next_anc = os.path.join(cur_anc, part)
+        if os.path.lexists(next_anc):
+            if os.path.islink(next_anc) or part not in os.listdir(cur_anc):
+                raise SystemExit(f"error: destination parent directory differs in case or is a symlink: {dst_rel}")
+        cur_anc = next_anc
+    os.makedirs(os.path.dirname(dst_joined), exist_ok=True)
     dst_parent_real = os.path.realpath(os.path.dirname(dst_joined))
     dst_full = os.path.join(dst_parent_real, os.path.basename(dst_joined))
     dst_norm = os.path.relpath(dst_full, ws_real).replace(os.sep, "/")
     if not dst_full.startswith(ws_real + os.sep) or not allowed(dst_norm):
         raise SystemExit(f"error: destination escapes allowedChangePrefixes: {dst_rel}")
-    if dst_full == src_full:
-        raise SystemExit(f"error: source and destination are identical: {dst_rel}")
-    # A case-only rename resolves to the source itself on case-insensitive filesystems, so allow that.
-    if os.path.lexists(dst_full) and dst_full.lower() != src_full.lower():
+    same_inode = os.path.lexists(dst_full) and os.path.samestat(os.lstat(src_full), os.lstat(dst_full))
+    if os.path.lexists(dst_full) and not same_inode:
         raise SystemExit(f"error: destination already exists: {dst_rel}")
-    os.makedirs(os.path.dirname(dst_full), exist_ok=True)
-    # Two-step rename when only letter case differs on case-insensitive filesystems
-    if src_full.lower() == dst_full.lower() and src_full != dst_full:
-        tmp_full = dst_full + ".case-rename-tmp"
+    if same_inode:
+        fd, tmp_full = tempfile.mkstemp(prefix=".case-rename-", dir=dst_parent_real)
+        os.close(fd)
+        os.unlink(tmp_full)
         os.rename(src_full, tmp_full)
         os.rename(tmp_full, dst_full)
     else:

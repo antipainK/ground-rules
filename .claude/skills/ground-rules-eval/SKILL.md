@@ -106,15 +106,20 @@ evals/ground-rules/results/<run-id>/
     foreign/git-data/
     update/workspace/
     update/git-data/
+    <state>/initial-workspace/
+    <state>/staging/
+    <state>/blind-input/
     <state>/agent-ids.json
     <state>/maintainer-answers.json
     <state>/maintainer-answers.ndjson
     <state>/transcript.md
+    <state>/final-report.md
     <state>/decision-record.json
     <state>/deterministic-checks.json
-    <state>/workflow-reviews/round-1-reviewer-<a|b>.json
+    <state>/workflow-reviews/round-1-reviewer-a.json
     <state>/review-1.json
     <state>/review-2.json
+    <state>/review-3.json
     <state>/result.json
   summary.json
 ```
@@ -162,9 +167,9 @@ Run cells in dependency-aware waves of up to three concurrent cells:
 
 1. `fresh` cells;
 2. `foreign` cells;
-3. `update` cells whose `fresh` cell has `"verdict": "pass"` in `result.json`.
+3. `update` cells whose `fresh` cell has `"verdict": "pass"` in `result.json` (when a `fresh` cell did not pass, record its `update` cell immediately with `score-cell.sh <run-id> <scenario> update product-fail "skipped because fresh cell failed"` so all 18 cells have `result.json`).
 
-If `prep-cell.sh` fails for a cell, record it with:
+If `prep-cell.sh` fails for an `update` cell because the `fresh` output lacked a valid `Last reviewed` date or unambiguous `.ai/*.md` topics, record `product-fail`; for any other `prep-cell.sh` failure, record:
 `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> harness-stopped "<reason>"`
 and do not launch agents for that cell.
 
@@ -173,12 +178,19 @@ and do not launch agents for that cell.
 Each cell uses separate target and persona agents. Never reveal persona
 instructions, scenario expectations, or rubric details to the target.
 
-Immediately after launching the target and persona agents for a cell, lock their
-IDs with:
+Immediately after launching the target agent for a cell, lock its ID with:
+
+```text
+evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> lock-agents <target-id>
+```
+
+If `step-turn.sh` later emits `ASK_PERSONA` while `"persona"` in `agent-ids.json`
+is still `null`, launch the persona agent once and bind its ID with:
 
 ```text
 evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> lock-agents <target-id> <persona-id>
 ```
+(Alternatively, if both target and persona were launched upfront, call `lock-agents <target-id> <persona-id>` once.)
 
 ### Target agent
 
@@ -200,7 +212,7 @@ Give the target only:
     instead of raw `rm` or `mv`.
 - this response contract:
 
-At every user decision, stop and return one JSON object:
+At every user decision, stop and return one JSON object (use `"options": []` only for genuinely open plain-text questions such as empty-repo project intent):
 
 ```json
 {
@@ -312,7 +324,9 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      (an `update` target asked a non-`Focused update` or follow-up question) with
      `score-cell.sh <run-id> <scenario> <state> product-fail "<reason>"`, otherwise
      `score-cell.sh <run-id> <scenario> <state> harness-stopped "<reason>"`.
-   - `ASK_PERSONA`: resume `resumeAgentId` (persona) with `questions`, write the
+   - `ASK_PERSONA`: if `resumeAgentId` is `null`, launch the persona agent once
+     and run `step-turn.sh <run-id> <scenario> <state> lock-agents <target-id> <persona-id>`;
+     otherwise resume `resumeAgentId` (persona) with `questions`. Write the
      persona's raw response to `<cell>/staging/persona-turn.txt`, and run:
      `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> persona`.
      Then read `next-step.json` and act on `"action"`:
@@ -328,11 +342,13 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
      (target) using `retryPrompt`; if a second format failure occurs, run
      `score-cell.sh <run-id> <scenario> <state> harness-error "<reason>"`.
    - `RUN_WORKFLOW_REVIEW`: run `verify-cell.sh <run-id> <scenario> <state>`
-     (continuing even if it exits `1`), launch one `eval-reviewer` agent giving
-     it `<cell>/workspace/`, `<cell>/decision-record.json`,
-     `<cell>/deterministic-checks.json`, `writtenPaths`, and
-     `plugins/ground-rules/skills/ground-rules/SKILL.md`, save its returned JSON
-     to `<cell>/workflow-reviews/round-1-reviewer-a.json` with Write, then run:
+     (continuing even if it exits `1`; do not pass `deterministic-checks.json`
+     to the reviewer), launch one `eval-reviewer` agent giving it only
+     `<cell>/workspace/`, `<cell>/initial-workspace/`, `<cell>/decision-record.json`,
+     `writtenPaths`, and `plugins/ground-rules/skills/ground-rules/SKILL.md`,
+     asking for JSON `{"findings": [{"severity": "blocker|major|deterministic-minor|stylistic-nitpick", "file": "<rel-path>", "line": 1, "quote": "<exact single-line substring>", "message": "<reason>"}]}`,
+     save its returned JSON to `<cell>/workflow-reviews/round-1-reviewer-a.json`
+     with Write, then run:
      `evals/ground-rules/scripts/step-turn.sh <run-id> <scenario> <state> workflow-review`
      and resume `resumeAgentId` (target) with only the `workflowReviews` object
      from `next-step.json`. Never add any orchestrator note, hint, or scenario
@@ -385,7 +401,8 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> blind`.
    If `score-cell.sh` exits `1` because a reviewer formatted a citation path or
    multi-line quote invalidly, allow at most one citation-format retry on that
-   reviewer.
+   reviewer; if `score-cell.sh` still exits `1` after the retry, record
+   `evals/ground-rules/scripts/score-cell.sh <run-id> <scenario> <state> harness-error "<reason>"`.
    Exit codes: `0` a result was recorded (a `FAIL` verdict also exits `0`; read the
    printed `PASS` or `FAIL`), `1` any other error, `2` needs a third reviewer, `3`
    needs a second reviewer. Failure outcomes: `harness-error` and `harness-stopped`
@@ -393,5 +410,5 @@ Do not manually copy, re-serialize, or byte-compare JSON in orchestrator prose:
    `PRODUCT`) is a fault of the skill under test.
 5. After all selected cells finish, run:
    - `evals/ground-rules/scripts/snapshot-source.sh after <run-id>`
-   - `evals/ground-rules/scripts/snapshot-source.sh compare <run-id>`
-   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <true|false>` (`true` marks a partial run that covered only some scenarios)
+   - `evals/ground-rules/scripts/snapshot-source.sh compare <run-id>` (continue to `summary` even if `compare` exits `1` so `sourceRepoUnchanged: false` is recorded)
+   - `evals/ground-rules/scripts/score-cell.sh summary <run-id> <model> <true|false>` (pass canonical slug such as `claude-sonnet-5-5`; `true` marks any scenario- or state-filtered partial run)

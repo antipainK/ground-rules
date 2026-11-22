@@ -7,7 +7,7 @@ A Claude Code plugin with one interactive skill that sets up, migrates, validate
 - asks about policy and consequential workflow choices, without re-asking settled decisions or facts the repository establishes
 - writes a short `AGENTS.md`, detailed rules in `.ai/`, and—with a chosen docs policy and per-file approval—tidies nonconforming names in `docs/`
 - proposes linter, formatter or compiler config for rules a tool can enforce
-- offers to delete old AI instruction files once their content is moved (you confirm each one)
+- offers to delete old AI instruction files once their accepted rules are migrated or discarded (you confirm each one)
 - offers a dated checklist in `docs/todo/` for code that doesn't follow the new rules yet
 - treats current Markdown as team-owned policy, with no plugin markers, hashes, or hidden ownership state
 - has a fresh agent review the result; deterministic findings are fixed, removed, or explicitly reported as open conflicts before any commit choice

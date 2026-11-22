@@ -61,32 +61,47 @@
         "Edit(/.gitignore)",
         "Write(.gitignore)",
         "Write(/.gitignore)",
-        "Edit(.claude/settings.json)",
-        "Edit(/.claude/settings.json)",
-        "Write(.claude/settings.json)",
-        "Write(/.claude/settings.json)",
-        "Edit(.claude/agents/**)",
-        "Edit(/.claude/agents/**)",
-        "Write(.claude/agents/**)",
-        "Write(/.claude/agents/**)",
-        "Edit(.claude/skills/**)",
-        "Edit(/.claude/skills/**)",
-        "Write(.claude/skills/**)",
-        "Write(/.claude/skills/**)"
+        "Edit(README.md)",
+        "Edit(/README.md)",
+        "Write(README.md)",
+        "Write(/README.md)",
+        "Edit(LICENSE)",
+        "Edit(/LICENSE)",
+        "Write(LICENSE)",
+        "Write(/LICENSE)",
+        "Edit(.mcp.json)",
+        "Edit(/.mcp.json)",
+        "Write(.mcp.json)",
+        "Write(/.mcp.json)",
+        "Edit(.git/**)",
+        "Edit(/.git/**)",
+        "Write(.git/**)",
+        "Write(/.git/**)",
+        "Edit(.claude-plugin/**)",
+        "Edit(/.claude-plugin/**)",
+        "Write(.claude-plugin/**)",
+        "Write(/.claude-plugin/**)",
+        "Edit(.claude/**)",
+        "Edit(/.claude/**)",
+        "Write(.claude/**)",
+        "Write(/.claude/**)"
       ]
     },
     "sandbox": {
       "filesystem": {
         "denyWrite": [
+          "./.git",
           "./.gitignore",
+          "./.mcp.json",
+          "./README.md",
+          "./LICENSE",
+          "./.claude-plugin",
+          "./.claude",
           "./evals/ground-rules/README.md",
           "./evals/ground-rules/scripts",
           "./evals/ground-rules/rubric.json",
           "./evals/ground-rules/scenarios",
-          "./plugins",
-          "./.claude/settings.json",
-          "./.claude/agents",
-          "./.claude/skills"
+          "./plugins"
         ]
       }
     }

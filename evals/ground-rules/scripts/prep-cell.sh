@@ -162,9 +162,10 @@ open(sys.argv[3], "w").write(r["text"] + "\n")' "$SCENARIO_FILE" "$TMP/topics.tx
   local review_info review_changed had_trailing_nl
   review_info=$(python3 -I -c 'import datetime,re,sys
 p = sys.argv[1]
-text = open(p).read()
+text = open(p, encoding="utf-8").read()
 had_nl = 0 if (text and not text.endswith("\n")) else 1
-today = datetime.datetime.now(datetime.timezone.utc).date()
+today_local = datetime.date.today()
+today_utc = datetime.datetime.now(datetime.timezone.utc).date()
 m = re.search(r"(?m)^Last reviewed: (\d{4}-\d{2}-\d{2})$", text)
 if not m:
     sys.exit(2)
@@ -172,14 +173,13 @@ try:
     reviewed = datetime.date.fromisoformat(m.group(1))
 except ValueError:
     sys.exit(2)
-# Allow +1 day for local-midnight timezone offset ahead of UTC
-if reviewed > today + datetime.timedelta(days=1):
+if reviewed > max(today_local, today_utc) + datetime.timedelta(days=1):
     sys.exit(3)
-if reviewed >= today:
+if reviewed >= today_local:
     print(f"0 {had_nl}")
 else:
-    text = text[:m.start(1)] + today.isoformat() + text[m.end(1):]
-    open(p, "w").write(text)
+    text = text[:m.start(1)] + today_local.isoformat() + text[m.end(1):]
+    open(p, "w", encoding="utf-8").write(text)
     print(f"1 {had_nl}")' "$WORKSPACE/$match") || fail_clean "the update target file lacks a valid Last reviewed date"
   review_changed="${review_info% *}"
   had_trailing_nl="${review_info#* }"
